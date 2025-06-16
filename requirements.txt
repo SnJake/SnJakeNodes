@@ -1,0 +1,5 @@
+requests
+opencv-python
+scikit-learn
+scikit-image
+Pillow

@@ -1,0 +1,27 @@
+[project]
+name = "comfyui-snjake-nodes"
+version = "0.1.0"
+description = "A collection of custom nodes for ComfyUI by SnJake"
+readme = "README.md"
+license = {text = "MIT License"}
+requires-python = ">=3.10"
+
+dependencies = [
+  "requests",
+  "scikit-image",
+  "scikit-learn",
+  "opencv-python",
+  "Pillow",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build",
+  "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/YourUsername/comfyui-snjake-nodes" # Замените на свой репозиторий
+
+[tool.comfyui-node-registry]
+publisher = "snjake"
