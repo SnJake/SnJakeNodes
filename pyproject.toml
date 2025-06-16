@@ -21,7 +21,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/YourUsername/comfyui-snjake-nodes" # Замените на свой репозиторий
+Homepage = "https://github.com/SnJake/SnJakeNodes"
 
 [tool.comfyui-node-registry]
 publisher = "snjake"
