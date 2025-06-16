@@ -43,7 +43,7 @@ You can install this node pack by following this method:
         1.  Navigate back to the **root** of your portable ComfyUI directory (e.g., `D:\ComfyUI_windows_portable`).
         2.  Run the following command to use the embedded Python to install the requirements. *Do not activate any venv.*
             ```bash
-            python_embeded\python.exe -m pip install -r custom_nodes\SnJakeNodes\requirements.txt
+            python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\SnJakeNodes\requirements.txt
             ```
 
 5.  **Restart ComfyUI**: Close the terminal and restart ComfyUI completely. The new `😎 SnJake` nodes will be available in the "Add Node" menu.
