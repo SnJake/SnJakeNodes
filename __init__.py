@@ -32,7 +32,6 @@ from .pixel_art_node import PixelArtNode
 from .color_palette_image_node import ColorPaletteImageNode
 from .color_palette_compression_node import ColorPaletteCompressionNode
 from .region_merging_node import RegionMergingNode
-from .advanced_pixel_art_node import AdvancedPixelArtNode
 from .pixelart_postprocess_node import PixelArtPostProcessNode
 
 from .segmentation_pixel_art_node import SegmentationPixelArtNode
