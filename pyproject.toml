@@ -24,4 +24,4 @@ dev = [
 Homepage = "https://github.com/SnJake/SnJakeNodes"
 
 [tool.comfyui-node-registry]
-publisher = "snjake"
+publisher = "SnJake"
