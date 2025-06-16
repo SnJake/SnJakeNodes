@@ -164,7 +164,6 @@ NODE_CLASS_MAPPINGS = {
     "ColorPaletteImageNode": ColorPaletteImageNode,
     "ColorPaletteCompressionNode": ColorPaletteCompressionNode,
     "RegionMergingNode": RegionMergingNode,
-    "AdvancedPixelArtNode": AdvancedPixelArtNode,
     "PixelArtPostProcessNode": PixelArtPostProcessNode,
     "SegmentationPixelArtNode": SegmentationPixelArtNode,
 
@@ -222,7 +221,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ColorPaletteImageNode": "😎 Color Palette",
     "ColorPaletteCompressionNode": "😎 Color Comprassion",
     "RegionMergingNode": "😎 Color Merge",
-    "AdvancedPixelArtNode": "😎 Advanced Pixel Art Node",
     "PixelArtPostProcessNode": "😎 Pixel Art Post Process Node",
     "SegmentationPixelArtNode": "😎 Segmentation Pixel Art Node",
     
