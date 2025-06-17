@@ -6,6 +6,7 @@ import { $el } from "../../../scripts/ui.js";
 const WIDGET_MIN_HEIGHT = 150;
 const ITEM_WIDTH = 100;
 const ITEM_MARGIN = 5;
+const MIN_NODE_WIDTH = ITEM_WIDTH + ITEM_MARGIN * 4 + 40; // enforce minimum width for node
 
 // --- LoraPreviewWidget ---
 function LoraPreviewWidget(node, widgetName) {
@@ -22,7 +23,8 @@ function LoraPreviewWidget(node, widgetName) {
         style: {
             // УБИРАЕМ !important отсюда, будем ставить в updateSize
             display: "grid", // Начальное значение
-            gridTemplateColumns: `repeat(auto-fill, minmax(${ITEM_WIDTH}px, 1fr))`,
+            gridTemplateColumns: `repeat(auto-fill, ${ITEM_WIDTH}px)`,
+            justifyContent: "flex-start",
             // Остальные стили оставляем как в ПРОШЛОМ ответе (без position, top, left, width)
             width: "100%", // Попробуем вернуть 100%
             minHeight: `${WIDGET_MIN_HEIGHT}px`,
@@ -305,6 +307,14 @@ app.registerExtension({
 
              const onResize = nodeType.prototype.onResize;
              nodeType.prototype.onResize = function(size) {
+                // enforce minimal width so preview items are not clipped
+                if (size && size[0] < MIN_NODE_WIDTH) {
+                    size[0] = MIN_NODE_WIDTH;
+                    this.size[0] = MIN_NODE_WIDTH;
+                } else if (this.size[0] < MIN_NODE_WIDTH) {
+                    this.size[0] = MIN_NODE_WIDTH;
+                }
+
                 const r = onResize ? onResize.apply(this, arguments) : undefined;
                  if (this.loraPreviewWidget) {
                     requestAnimationFrame(() => {
