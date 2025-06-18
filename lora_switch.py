@@ -77,7 +77,7 @@ class LoraBlocker:
             print(f"[LoraBlocker] Pass -> (select: {select}, pass_on: {pass_on_select})")
             return (model, clip)
         else:
-            # В противном случае блокируем выполнение
-            print(f"[LoraBlocker] Block -> (select: {select}, pass_on: {pass_on_select})")
-            # ExecutionBlocker(None) молча остановит выполнение этой ветки
-            return (ExecutionBlocker(None), ExecutionBlocker(None))
+            # И ID ноды, которая блокирует
+            print(f"[LoraBlocker ID: {unique_id}] Block -> (select: {select}, pass_on: {pass_on_select})")
+            # ПРАВИЛЬНО: возвращаем один объект, движок сам все заблокирует
+            return ExecutionBlocker(None)
