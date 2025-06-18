@@ -72,15 +72,3 @@ app.registerExtension({
         }
     }
 });
-
-
-// --- Логика для окрашивания Lora Blocker (ваш код был правильным, оставляем его) ---
-app.registerExtension({
-    name: "SnJake.LoraBlocker.Coloring",
-    async nodeCreated(node) {
-        if (node.comfyClass === "LoraBlocker") {
-            node.color = "#2e2e36";
-            node.bgcolor = "#41414a";
-        }
-    }
-});
