@@ -1,30 +1,47 @@
 import { app } from "../../../scripts/app.js";
 
+// --- Логика для динамического Lora Switcher ---
 app.registerExtension({
-    name: "LoraSwitchDynamic.DynamicInputs",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
+    name: "SnJake.LoraSwitchDynamic.Handler",
+
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+        // Проверяем, что это наша нода
         if (nodeData.name === "LoraSwitchDynamic") {
-            node.color = "#2e2e36";
-            node.bgcolor = "#41414a";
-            // Вызывается при создании ноды
+
+            // 1. Получаем оригинальную функцию onNodeCreated, если она есть
+            const onNodeCreated = nodeType.prototype.onNodeCreated;
+
+            // 2. Переопределяем onNodeCreated, чтобы добавить нашу логику
             nodeType.prototype.onNodeCreated = function () {
+                // Сначала вызываем оригинальную функцию
+                onNodeCreated?.apply(this, arguments);
+
+                // Теперь 'this' — это наш экземпляр ноды на холсте.
+                // Здесь мы можем безопасно менять его свойства и добавлять виджеты.
+
+                // Устанавливаем цвет ноды
+                this.color = "#2e2e36";
+                this.bgcolor = "#41414a";
+
                 // Добавляем кнопку "Update Inputs"
                 this.addWidget("button", "Update Inputs", null, () => {
                     this.updateInputs();
                 });
 
-                // Первоначальное обновление при создании
+                // Вызываем обновление входов при первом создании ноды
                 this.updateInputs();
             };
 
-            // Логика обновления входов
+            // 3. Добавляем метод updateInputs в "чертеж" (прототип) ноды
             nodeType.prototype.updateInputs = function() {
                 const pairsWidget = this.widgets.find(w => w.name === "pairs");
                 if (!pairsWidget) return;
 
                 const targetPairs = pairsWidget.value;
-                const currentInputs = this.inputs ? this.inputs.length : 0;
-                const currentPairs = currentInputs / 2;
+
+                // Считаем только входы для model/clip, игнорируя остальные
+                const currentModelClipInputs = this.inputs ? this.inputs.filter(inp => inp.name.startsWith("model_") || inp.name.startsWith("clip_")) : [];
+                const currentPairs = currentModelClipInputs.length / 2;
 
                 if (targetPairs === currentPairs) {
                     return; // Количество пар не изменилось
@@ -39,26 +56,27 @@ app.registerExtension({
                 }
                 // Удаление лишних пар
                 else if (targetPairs < currentPairs) {
-                    // Удаляем входы парами, начиная с конца
                     for (let i = currentPairs; i > targetPairs; i--) {
-                        this.removeInput(this.inputs.length - 1); // remove clip
-                        this.removeInput(this.inputs.length - 1); // remove model
+                        // Безопасное удаление по имени, чтобы избежать ошибок
+                        const clipIndex = this.inputs.findIndex(inp => inp.name === `clip_${i}`);
+                        if (clipIndex !== -1) this.removeInput(clipIndex);
+                        
+                        const modelIndex = this.inputs.findIndex(inp => inp.name === `model_${i}`);
+                        if (modelIndex !== -1) this.removeInput(modelIndex);
                     }
                 }
                 
-                // Обновляем размер ноды, чтобы все поместилось
                 this.computeSize();
                 app.graph.setDirtyCanvas(true, true);
             };
         }
-    },
+    }
 });
 
 
-
-
+// --- Логика для окрашивания Lora Blocker (ваш код был правильным, оставляем его) ---
 app.registerExtension({
-    name: "SnJake.LoraBlocker",
+    name: "SnJake.LoraBlocker.Coloring",
     async nodeCreated(node) {
         if (node.comfyClass === "LoraBlocker") {
             node.color = "#2e2e36";
