@@ -39,7 +39,7 @@ class LoraSwitch6:
     FUNCTION = "switch_pair"
 
     # Категория, в которой нода появится в меню "Add Node"
-    CATEGORY = "Switches"
+    CATEGORY = "😎 SnJake/LoRA"
 
     def switch_pair(self, select, **kwargs):
         """
