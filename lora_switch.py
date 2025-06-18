@@ -26,7 +26,7 @@ class LoraSwitchDynamic:
     RETURN_TYPES = ("MODEL", "CLIP")
     RETURN_NAMES = ("model", "clip")
     FUNCTION = "switch_pair"
-    CATEGORY = "Switches"
+    CATEGORY = "😎 SnJake/LoRA"
 
     def switch_pair(self, select, pairs, **kwargs):
         """
@@ -69,7 +69,7 @@ class LoraBlocker:
 
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "block_or_pass"
-    CATEGORY = "Switches"
+    CATEGORY = "😎 SnJake/LoRA"
 
     def block_or_pass(self, model, clip, select, pass_on_select):
         # Если текущий выбор совпадает с тем, при котором нужно пропустить сигнал
