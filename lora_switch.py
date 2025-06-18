@@ -64,20 +64,21 @@ class LoraBlocker:
                 "clip": ("CLIP",),
                 "select": ("INT", {"default": 1, "min": 1, "max": 999}),
                 "pass_on_select": ("INT", {"default": 1, "min": 1, "max": 999, "tooltip": "Значение, при котором сигнал должен пройти"}),
-            }
+            },
+            # Добавляем скрытый вход для получения ID ноды
+            "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
     RETURN_TYPES = ("MODEL", "CLIP")
     FUNCTION = "block_or_pass"
     CATEGORY = "😎 SnJake/LoRA"
 
-    def block_or_pass(self, model, clip, select, pass_on_select):
-        # Если текущий выбор совпадает с тем, при котором нужно пропустить сигнал
+    def block_or_pass(self, model, clip, select, pass_on_select, unique_id):
         if select == pass_on_select:
-            print(f"[LoraBlocker] Pass -> (select: {select}, pass_on: {pass_on_select})")
+            print(f"[LoraBlocker ID: {unique_id}] Pass -> (select: {select}, pass_on: {pass_on_select})")
             return (model, clip)
         else:
-            # И ID ноды, которая блокирует
             print(f"[LoraBlocker ID: {unique_id}] Block -> (select: {select}, pass_on: {pass_on_select})")
-            # ПРАВИЛЬНО: возвращаем один объект, движок сам все заблокирует
+            # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+            # Возвращаем ОДИН объект ExecutionBlocker. ComfyUI сам заблокирует все выходы.
             return ExecutionBlocker(None)
