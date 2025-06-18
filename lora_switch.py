@@ -1,69 +1,83 @@
-class LoraSwitch6:
+from comfy_execution.graph import ExecutionBlocker
+
+
+class LoraSwitchDynamic:
     """
-    Нода-переключатель для 6 пар MODEL и CLIP.
-    Выбирает активную пару входов (model_N, clip_N) на основе значения 'select'
-    и передает их на выходы.
+    Динамический переключатель для N пар MODEL и CLIP.
+    Выбирает активную пару на основе 'select' и передает ее на выход.
+    Количество пар задается в виджете 'pairs' и обновляется по кнопке в интерфейсе.
     """
     
     @classmethod
     def INPUT_TYPES(cls):
-        """
-        Определяет типы входов для ноды.
-        - 'select': INT виджет для выбора активной пары.
-        - 6 опциональных пар входов для MODEL и CLIP.
-        """
-        # Создаем словарь для опциональных входов динамически
-        optional_inputs = {}
-        for i in range(1, 7):
-            optional_inputs[f"model_{i}"] = ("MODEL",)
-            optional_inputs[f"clip_{i}"] = ("CLIP",)
-
         return {
             "required": {
-                "select": ("INT", {
-                    "default": 1, 
-                    "min": 1, 
-                    "max": 6, 
-                    "step": 1
-                }),
+                "select": ("INT", {"default": 1, "min": 1, "max": 999}),
+                # Этот виджет будет управлять количеством входов в JS
+                "pairs": ("INT", {"default": 6, "min": 1, "max": 99}),
             },
-            "optional": optional_inputs
+            # Мы определим 1-ю пару по умолчанию, остальные добавит JS
+            "optional": {
+                "model_1": ("MODEL",),
+                "clip_1": ("CLIP",),
+            }
         }
 
-    # Типы данных, которые нода возвращает
     RETURN_TYPES = ("MODEL", "CLIP")
-    # Имена выходных сокетов
     RETURN_NAMES = ("model", "clip")
-
-    # Название функции, которая будет выполняться
     FUNCTION = "switch_pair"
-
-    # Категория, в которой нода появится в меню "Add Node"
     CATEGORY = "Switches"
 
-    def switch_pair(self, select, **kwargs):
+    def switch_pair(self, select, pairs, **kwargs):
         """
-        Основная логика ноды.
-        'select' - это значение из INT виджета.
-        'kwargs' будет содержать все опциональные входы, которые были подключены.
+        Логика ноды. 'pairs' здесь не используется, но должен быть в аргументах.
         """
-        # Формируем имена ключей для выбранной пары
         model_key = f"model_{select}"
         clip_key = f"clip_{select}"
 
-        # Получаем объекты model и clip из kwargs.
-        # Если вход не подключен, kwargs.get вернет None.
-        selected_model = kwargs.get(model_key, None)
-        selected_clip = kwargs.get(clip_key, None)
+        selected_model = kwargs.get(model_key)
+        selected_clip = kwargs.get(clip_key)
         
-        # Проверяем, что оба входа для выбранной пары подключены.
-        # Если нет, ComfyUI в любом случае выдаст ошибку на следующей ноде,
-        # которая ожидает эти данные, что является стандартным поведением.
         if selected_model is None:
-            print(f"[LoraSwitch6] Внимание: Вход '{model_key}' не подключен, но выбран. На выход будет передан 'None'.")
+            print(f"[LoraSwitchDynamic] Warning: Input '{model_key}' is not connected but selected. Passing through 'None'.")
         
         if selected_clip is None:
-            print(f"[LoraSwitch6] Внимание: Вход '{clip_key}' не подключен, но выбран. На выход будет передан 'None'.")
+            print(f"[LoraSwitchDynamic] Warning: Input '{clip_key}' is not connected but selected. Passing through 'None'.")
 
-        # Возвращаем выбранную пару. Важно вернуть кортеж.
         return (selected_model, selected_clip)
+
+
+
+
+class LoraBlocker:
+    """
+    Блокирует или пропускает сигнал MODEL и CLIP.
+    Если 'select' РАВЕН 'pass_on_select', сигнал проходит.
+    В противном случае, выполнение последующих нод блокируется.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "select": ("INT", {"default": 1, "min": 1, "max": 999}),
+                "pass_on_select": ("INT", {"default": 1, "min": 1, "max": 999, "tooltip": "Значение, при котором сигнал должен пройти"}),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL", "CLIP")
+    FUNCTION = "block_or_pass"
+    CATEGORY = "Switches"
+
+    def block_or_pass(self, model, clip, select, pass_on_select):
+        # Если текущий выбор совпадает с тем, при котором нужно пропустить сигнал
+        if select == pass_on_select:
+            print(f"[LoraBlocker] Pass -> (select: {select}, pass_on: {pass_on_select})")
+            return (model, clip)
+        else:
+            # В противном случае блокируем выполнение
+            print(f"[LoraBlocker] Block -> (select: {select}, pass_on: {pass_on_select})")
+            # ExecutionBlocker(None) молча остановит выполнение этой ветки
+            return (ExecutionBlocker(None), ExecutionBlocker(None))
