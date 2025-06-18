@@ -55,7 +55,7 @@ from .datetime_node import DateTimeToStringNode
 
 from .detailer_node import DetailerForEachMask
 
-from .lora_switch import LoraSwitchDynamic, LoraBlocker
+from .lora_switch import LoraSwitchDynamic
 
 # Регистарция путей
 import os
@@ -184,7 +184,6 @@ NODE_CLASS_MAPPINGS = {
     "DetailerForEachMask": DetailerForEachMask,
 
     "LoraSwitchDynamic": LoraSwitchDynamic,
-    "LoraBlocker": LoraBlocker,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -244,7 +243,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DetailerForEachMask": "😎 Sequential Mask Detailer",
     
     "LoraSwitchDynamic": "😎 Lora Switcher",
-    "LoraBlocker": "😎 Lora Blocker",
 
 
 }
