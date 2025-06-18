@@ -1,4 +1,4 @@
-from comfy_execution.graph import ExecutionBlocker
+
 
 
 class LoraSwitchDynamic:
@@ -61,40 +61,3 @@ class LoraSwitchDynamic:
         print(f"[LoraSwitchDynamic] Switching to pair #{selected_index}. Passing model: {type(selected_model)}, clip: {type(selected_clip)}")
 
         return (selected_model, selected_clip)
-
-
-
-
-class LoraBlocker:
-    """
-    Блокирует или пропускает сигнал MODEL и CLIP.
-    Если 'select' РАВЕН 'pass_on_select', сигнал проходит.
-    В противном случае, выполнение последующих нод блокируется.
-    """
-    
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "model": ("MODEL",),
-                "clip": ("CLIP",),
-                "select": ("INT", {"default": 1, "min": 1, "max": 999}),
-                "pass_on_select": ("INT", {"default": 1, "min": 1, "max": 999, "tooltip": "Значение, при котором сигнал должен пройти"}),
-            },
-            # Добавляем скрытый вход для получения ID ноды
-            "hidden": {"unique_id": "UNIQUE_ID"},
-        }
-
-    RETURN_TYPES = ("MODEL", "CLIP")
-    FUNCTION = "block_or_pass"
-    CATEGORY = "😎 SnJake/LoRA"
-
-    def block_or_pass(self, model, clip, select, pass_on_select, unique_id):
-        if select == pass_on_select:
-            print(f"[LoraBlocker ID: {unique_id}] Pass -> (select: {select}, pass_on: {pass_on_select})")
-            return (model, clip)
-        else:
-            print(f"[LoraBlocker ID: {unique_id}] Block -> (select: {select}, pass_on: {pass_on_select})")
-            # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-            # Возвращаем ОДИН объект ExecutionBlocker. ComfyUI сам заблокирует все выходы.
-            return ExecutionBlocker(None)
