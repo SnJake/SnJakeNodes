@@ -55,7 +55,7 @@ from .datetime_node import DateTimeToStringNode
 
 from .detailer_node import DetailerForEachMask
 
-from .lora-switch import LoraSwitchDynamic, LoraBlocker
+from .lora_switch import LoraSwitchDynamic, LoraBlocker
 
 # Регистарция путей
 import os
