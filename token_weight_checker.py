@@ -1,12 +1,12 @@
 import torch
 import re
+import traceback
 
 class TokenWeightChecker:
     """
-    Универсальная нода для проверки "веса" токенов в моделях CLIP.
-    Автоматически определяет и обрабатывает одиночные и множественные
-    текстовые энкодеры (например, в SDXL, SD3, Flux).
-    Под "весом" понимается L2-норма (величина) вектора эмбеддинга токена.
+    Универсальная нода для проверки "веса" токенов.
+    Динамически находит все текстовые энкодеры внутри объекта CLIP,
+    что делает ее совместимой с SD1.5, SDXL, SD3, Flux и другими архитектурами.
     """
 
     @classmethod
@@ -27,26 +27,36 @@ class TokenWeightChecker:
     CATEGORY = "😎 SnJake/Utils"
 
     def _process_encoder(self, name, encoder, token_list):
-        """Вспомогательная функция для обработки одного энкодера."""
+        """Вспомогательная функция для анализа одного энкодера."""
         lines = [f"--- Анализ для: {name} ---"]
         
         try:
-            # Получаем токенизатор и эмбеддинги
-            tokenizer = encoder.tokenizer
-            
-            # У разных моделей разная структура
-            if hasattr(encoder, 'transformer') and hasattr(encoder.transformer, 'text_model'): # Для OpenCLIP (clip-l, clip-g)
+            tokenizer = getattr(encoder, 'tokenizer', None)
+            if not tokenizer:
+                lines.append("Ошибка: Токенизатор не найден.")
+                return lines
+
+            # Универсальный способ получить эмбеддинги
+            if hasattr(encoder, 'transformer') and hasattr(encoder.transformer, 'text_model') and hasattr(encoder.transformer.text_model, 'embeddings'):
                 embeddings = encoder.transformer.text_model.embeddings.token_embedding.weight
-            elif hasattr(encoder, 'transformer') and hasattr(encoder.transformer, 'get_input_embeddings'): # Для T5
+            elif hasattr(encoder, 'transformer') and hasattr(encoder.transformer, 'get_input_embeddings'):
                 embeddings = encoder.transformer.get_input_embeddings().weight
             else:
-                lines.append("Не удалось найти таблицу эмбеддингов для этой модели.")
+                lines.append("Ошибка: Не удалось найти таблицу эмбеддингов для этой модели.")
                 return lines
 
             for token_str in token_list:
-                token_ids = tokenizer.encode(token_str)
-                meaningful_tokens = token_ids[1:-1] # Исключаем токены начала/конца
+                # Пропускаем пустые строки
+                if not token_str.strip():
+                    continue
 
+                token_ids = tokenizer.encode(token_str)
+                # Убираем токены начала/конца, которые обычно имеют ID 49406 и 49407
+                meaningful_tokens = [tid for tid in token_ids if tid not in [tokenizer.bos_token_id, tokenizer.eos_token_id, getattr(tokenizer, 'pad_token_id', -1)]]
+                # Fallback для старых токенизаторов
+                if not meaningful_tokens and len(token_ids) > 2:
+                    meaningful_tokens = token_ids[1:-1]
+                
                 if not meaningful_tokens:
                     lines.append(f"'{token_str}': [Не удалось токенизировать]")
                     continue
@@ -79,39 +89,45 @@ class TokenWeightChecker:
                         lines.append(f"'{token_str}': {weight:.4f}")
             
         except Exception as e:
-            lines.append(f"Ошибка при обработке энкодера '{name}': {e}")
-            import traceback
+            lines.append(f"Исключение при обработке энкодера '{name}': {e}")
             lines.append(traceback.format_exc())
             
         return lines
 
     def check_token_weights(self, clip, tokens):
-        # Собираем все энкодеры, которые есть в объекте clip
         encoders_to_check = {}
-        possible_encoder_names = ['clip_l', 'clip_g', 't5xxl']
-        
-        for name in possible_encoder_names:
-            if hasattr(clip, name) and getattr(clip, name) is not None:
-                encoders_to_check[name.upper()] = getattr(clip, name)
-        
-        # Если ни одного вложенного энкодера не найдено,
-        # предполагаем, что сам 'clip' является энкодером (для SD 1.5)
+
+        # 1. Интроспекция: ищем вложенные энкодеры
+        for attr_name in dir(clip):
+            if attr_name.startswith('_'):
+                continue
+            
+            try:
+                attr_value = getattr(clip, attr_name)
+                if hasattr(attr_value, 'tokenizer') and hasattr(attr_value, 'transformer'):
+                    encoders_to_check[attr_name.upper()] = attr_value
+            except Exception:
+                continue
+
+        # 2. Если ничего не нашли, проверяем сам объект clip
         if not encoders_to_check:
             if hasattr(clip, 'tokenizer') and hasattr(clip, 'transformer'):
-                 encoders_to_check['CLIP'] = clip
-            else:
-                return ("Ошибка: не удалось определить структуру CLIP. Это не стандартный CLIP-объект и не контейнер (SDXL/SD3).",)
+                encoders_to_check['CLIP'] = clip
+        
+        # 3. Если снова неудача, сообщаем об ошибке
+        if not encoders_to_check:
+            error_msg = ("Ошибка: не удалось найти ни одного текстового энкодера.\n"
+                         "Убедитесь, что на вход подан корректный CLIP-объект.")
+            return (error_msg,)
 
-        # Обрабатываем введенные токены
         token_list = [t.strip() for t in re.split('[,\\n]', tokens) if t.strip()]
         if not token_list:
-            return ("Нет токенов для проверки.",)
+            return ("Введите токены для анализа.",)
 
-        # Собираем результаты по всем энкодерам
         final_output = []
         for name, encoder in encoders_to_check.items():
             result_lines = self._process_encoder(name, encoder, token_list)
             final_output.extend(result_lines)
-            final_output.append("") # Добавляем пустую строку для разделения
+            final_output.append("")
 
         return ("\n".join(final_output),)
