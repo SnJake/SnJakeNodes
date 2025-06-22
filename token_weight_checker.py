@@ -4,6 +4,7 @@ import re
 class TokenWeightChecker:
     """
     Нода для проверки "веса" токенов в модели CLIP.
+    Принимает на вход CLIP, а не MODEL.
     Под "весом" понимается L2-норма (величина) вектора эмбеддинга токена.
     Более высокое значение может указывать на то, что токен несет больше "изученной" информации.
     """
@@ -12,7 +13,8 @@ class TokenWeightChecker:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "model": ("MODEL",),
+                # ИЗМЕНЕНО: Теперь нода напрямую принимает CLIP
+                "clip": ("CLIP",),
                 "tokens": ("STRING", {
                     "multiline": True,
                     "default": "cat, dog, astronaut, a beautiful landscape"
@@ -25,17 +27,11 @@ class TokenWeightChecker:
     FUNCTION = "check_token_weights"
     CATEGORY = "😎 SnJake/Utils"
 
-    def check_token_weights(self, model, tokens):
+    # ИЗМЕНЕНО: Функция теперь принимает 'clip' вместо 'model'
+    def check_token_weights(self, clip, tokens):
         output_lines = []
         
-        # Пытаемся получить доступ к CLIP модели. 
-        # В ComfyUI объект model является ModelPatcher, который оборачивает реальную модель.
-        if not hasattr(model, 'model') or not hasattr(model.model, 'clip'):
-            return ("Ошибка: не удалось получить доступ к CLIP из предоставленной модели.",)
-
-        clip = model.model.clip
-        
-        # Получаем токенизатор и эмбеддинги
+        # Получаем токенизатор и эмбеддинги напрямую из объекта CLIP
         try:
             tokenizer = clip.tokenizer
             embedding_layer = clip.transformer.text_model.embeddings.token_embedding
@@ -54,15 +50,25 @@ class TokenWeightChecker:
 
         for token_str in token_list:
             # Токенизируем строку
-            # encode добавляет токены начала и конца строки (e.g., [49406, ID, 49407])
+            # .encode() добавляет токены начала и конца строки (e.g., [49406, ID, 49407] для SD1.5)
             token_ids = tokenizer.encode(token_str)
 
-            # Проверяем, состоит ли ввод из одного токена
-            if len(token_ids) != 3:
+            # Проверяем, состоит ли ввод из одного "значимого" токена (исключая start/end)
+            # Для SDXL может быть больше служебных токенов
+            meaningful_tokens = token_ids[1:-1]
+            if not meaningful_tokens:
+                 output_lines.append(f"'{token_str}': [Не удалось токенизировать]")
+                 continue
+
+            if len(meaningful_tokens) > 1:
                 # Если строка разбивается на несколько токенов, обрабатываем каждый
                 sub_tokens_info = []
-                # Исключаем токены начала/конца [1:-1]
-                for token_id in token_ids[1:-1]:
+                for token_id in meaningful_tokens:
+                    # Убедимся, что ID в пределах словаря
+                    if token_id >= len(embeddings):
+                        sub_tokens_info.append(f"ID {token_id} [вне словаря]")
+                        continue
+                    
                     sub_token_str = tokenizer.decode([token_id])
                     # Проверяем, что токен не является UNK (неизвестным)
                     if token_id == tokenizer.unk_token_id:
@@ -77,7 +83,11 @@ class TokenWeightChecker:
 
             else:
                 # Обработка одиночного токена
-                token_id = token_ids[1]
+                token_id = meaningful_tokens[0]
+                if token_id >= len(embeddings):
+                    output_lines.append(f"'{token_str}': ID {token_id} [вне словаря]")
+                    continue
+
                 if token_id == tokenizer.unk_token_id:
                     output_lines.append(f"'{token_str}': [Неизвестный токен]")
                 else:
@@ -89,4 +99,3 @@ class TokenWeightChecker:
         result_string = "\n".join(output_lines)
         
         return (result_string,)
-
