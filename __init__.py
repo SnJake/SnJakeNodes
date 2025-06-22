@@ -57,6 +57,8 @@ from .detailer_node import DetailerForEachMask
 
 from .lora_switch import LoraSwitchDynamic
 
+from .token_weight_checker import TokenWeightChecker
+
 # Регистарция путей
 import os
 import folder_paths
@@ -184,6 +186,8 @@ NODE_CLASS_MAPPINGS = {
     "DetailerForEachMask": DetailerForEachMask,
 
     "LoraSwitchDynamic": LoraSwitchDynamic,
+
+    "TokenWeightChecker": TokenWeightChecker,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -243,6 +247,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DetailerForEachMask": "😎 Sequential Mask Detailer",
     
     "LoraSwitchDynamic": "😎 Lora Switcher",
+
+    "TokenWeightChecker": "😎 Token Weight Checker",
 
 
 }
