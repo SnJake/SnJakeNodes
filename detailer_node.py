@@ -198,7 +198,6 @@ class DetailerForEachMask:
                 # Rescale settings
                 "force_width": ("INT", {"default": 512, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 8, "tooltip": "Принудительная ширина области для семплирования. 0 = авто."}),
                 "force_height": ("INT", {"default": 512, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 8, "tooltip": "Принудительная высота области для семплирования. 0 = авто."}),
-                # ИЗМЕНЕНИЕ: Разделили на два алгоритма для большей гибкости
                 "downscale_algorithm": (cls.upscale_methods, {"default": "bilinear", "tooltip": "Алгоритм для уменьшения масштаба."}),
                 "upscale_algorithm": (cls.upscale_methods, {"default": "bicubic", "tooltip": "Алгоритм для увеличения масштаба."}),
                 "padding": ([8, 16, 32, 64, 128, 256], {"default": 32, "tooltip": "Выравнивание размера вырезанной области. Ее ширина и высота будут кратны этому значению."}),
@@ -214,9 +213,6 @@ class DetailerForEachMask:
     FUNCTION = "detail_sequentially"
     CATEGORY = "😎 SnJake/Detailer"
 
-    # УДАЛЕНО: self.rescale, self.apply_padding, self.blur_inpaint_mask, self.composite
-    # Теперь мы используем более надежные глобальные функции.
-
     def detail_sequentially(self, model, positive, negative, vae, image, masks,
                             noise_seed, steps, cfg, sampler_name, scheduler, denoise,
                             context_expand_pixels, blur_mask_pixels, blend_pixels, grow_mask_by,
@@ -225,14 +221,16 @@ class DetailerForEachMask:
         
         if masks.numel() == 0 or masks.max() == 0:
             print("Маски не найдены или пусты. Возвращается исходное изображение.")
-            latent = vae.encode(image[:,:,:,:3].movedim(-1,1)).movedim(1,-1)
-            return (image, {"samples": latent}, torch.zeros_like(masks))
+            # Исправлено: VAE ожидает BCHW, а не BHWC
+            final_latent_tensor = vae.encode(image[:,:,:,:3].movedim(-1, 1))
+            return (image, {"samples": final_latent_tensor}, torch.zeros_like(masks))
 
         mask_np = masks.cpu().numpy().squeeze()
         labeled_array, num_features = label(mask_np > 0.5)
         if num_features == 0:
-            latent = vae.encode(image[:,:,:,:3].movedim(-1,1)).movedim(1,-1)
-            return (image, {"samples": latent}, torch.zeros_like(masks))
+            # Исправлено: VAE ожидает BCHW, а не BHWC
+            final_latent_tensor = vae.encode(image[:,:,:,:3].movedim(-1, 1))
+            return (image, {"samples": final_latent_tensor}, torch.zeros_like(masks))
             
         found_objects = find_objects(labeled_array)
         decorated_masks = [{'slice': slc, 'label': i + 1, 'area': np.sum(labeled_array[slc] == i + 1),
@@ -255,17 +253,14 @@ class DetailerForEachMask:
         for i, mask_info in enumerate(decorated_masks):
             print(f"Обработка маски {i+1}/{num_features}...")
             
-            # --- 1. Подготовка маски и определение области для кропа ---
             current_mask_np = (labeled_array == mask_info['label']).astype(np.float32)
             current_mask_tensor = torch.from_numpy(current_mask_np).to(image.device).unsqueeze(0)
             
-            # Предварительная обработка маски для инпейнтинга
             if blur_mask_pixels > 0:
                 inpaint_mask = blur_m(current_mask_tensor, blur_mask_pixels)
             else:
                 inpaint_mask = current_mask_tensor
 
-            # Определение bounding box и его расширение
             slc = mask_info['slice']
             y_min, y_max = slc[0].start, slc[0].stop
             x_min, x_max = slc[1].start, slc[1].stop
@@ -275,11 +270,9 @@ class DetailerForEachMask:
             w = (x_max - x_min) + 2 * context_expand_pixels
             h = (y_max - y_min) + 2 * context_expand_pixels
 
-            # --- 2. Умный кроп с использованием новой логики ---
             target_w = force_width if force_width > 0 else w
             target_h = force_height if force_height > 0 else h
 
-            # `crop_magic_im` теперь делает всю сложную работу
             canvas_image, cto_x, cto_y, cto_w, cto_h, \
             cropped_image, cropped_mask, \
             ctc_x, ctc_y, ctc_w, ctc_h = crop_magic_im(
@@ -289,18 +282,18 @@ class DetailerForEachMask:
             
             if cropped_image.shape[1] == 0 or cropped_image.shape[2] == 0: continue
 
-            # --- 3. Подготовка к семплированию (как и раньше) ---
             latent_mask_for_inpaint = cropped_mask.clone()
             pixels_for_concat = cropped_image * (1.0 - latent_mask_for_inpaint.round().unsqueeze(-1))
             
-            concat_latent = vae.encode(pixels_for_concat.movedim(-1,1)).movedim(1,-1)
-            initial_latent_samples = vae.encode(cropped_image.movedim(-1,1)).movedim(1,-1)
+            # ИСПРАВЛЕНО: vae.encode() возвращает BCHW, второй movedim не нужен
+            concat_latent = vae.encode(pixels_for_concat.movedim(-1, 1))
+            initial_latent_samples = vae.encode(cropped_image.movedim(-1, 1))
 
             latent_for_sampler = {"samples": initial_latent_samples}
             mask_for_sampler = latent_mask_for_inpaint.reshape((-1, 1, latent_mask_for_inpaint.shape[-2], latent_mask_for_inpaint.shape[-1]))
             
             if grow_mask_by > 0:
-                grown_mask = expand_m(mask_for_sampler.squeeze(0), grow_mask_by*2).unsqueeze(0) # *2 for same effect as conv2d
+                grown_mask = expand_m(mask_for_sampler.squeeze(0), grow_mask_by*2).unsqueeze(0)
             else:
                 grown_mask = mask_for_sampler
 
@@ -310,16 +303,14 @@ class DetailerForEachMask:
             positive_inpaint = [[c[0], {**c[1], 'concat_latent_image': concat_latent, 'concat_mask': mask_for_sampler}] for c in positive]
             negative_inpaint = [[c[0], {**c[1], 'concat_latent_image': concat_latent, 'concat_mask': mask_for_sampler}] for c in negative]
             
-            # --- 4. Семплирование ---
             latent_out = nodes.common_ksampler(model, noise_seed, steps, cfg, sampler_name, scheduler, positive_inpaint, negative_inpaint, latent_for_sampler, denoise=denoise)[0]
             noise_seed += 1
-            decoded_crop = vae.decode(latent_out["samples"].movedim(-1,1)).movedim(1,-1)
+            
+            # ИСПРАВЛЕНО: latent_out["samples"] уже BCHW. vae.decode() возвращает BCHW, который надо перевести в BHWC.
+            decoded_crop = vae.decode(latent_out["samples"]).movedim(1, -1)
 
-            # --- 5. Подготовка к сшивке и сама сшивка ---
-            # Создаем маску для плавного смешивания
             blend_mask = blur_m(cropped_mask, blend_pixels)
             
-            # `stitch_magic_im` теперь выполняет сшивку
             image_to_process = stitch_magic_im(
                 canvas_image, decoded_crop, blend_mask,
                 ctc_x, ctc_y, ctc_w, ctc_h,
@@ -327,16 +318,17 @@ class DetailerForEachMask:
                 downscale_algorithm, upscale_algorithm
             )
             
-            # --- 6. Обновление финальной маски для вывода ---
-            # Создаем временный холст для маски, вставляем размытую маску и обрезаем
             temp_mask_canvas = torch.zeros_like(canvas_image[:,:,:,0])
             blend_mask_resized = rescale_m(blend_mask, ctc_w, ctc_h, "bicubic")
             temp_mask_canvas[:, ctc_y:ctc_y+ctc_h, ctc_x:ctc_x+ctc_w] = blend_mask_resized
             processed_part_mask = temp_mask_canvas[:, cto_y:cto_y+cto_h, cto_x:cto_x+cto_w]
             
-            final_processed_mask = torch.max(final_processed_mask, processed_part_mask) # Используем max для корректного сложения
+            final_processed_mask = torch.max(final_processed_mask, processed_part_mask)
             pbar.update(1)
         
         final_processed_mask.clamp_(0.0, 1.0)
-        final_latent = vae.encode(image_to_process[:,:,:,:3].movedim(-1,1)).movedim(1,-1)
-        return (image_to_process, {"samples": final_latent}, final_processed_mask.squeeze(0))
+        
+        # ИСПРАВЛЕНО: VAE ожидает BCHW. Результат нужно обернуть в словарь.
+        final_latent_tensor = vae.encode(image_to_process[:,:,:,:3].movedim(-1, 1))
+        
+        return (image_to_process, {"samples": final_latent_tensor}, final_processed_mask.squeeze(0))
