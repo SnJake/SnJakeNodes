@@ -5,66 +5,98 @@ import comfy.utils
 import comfy.samplers
 import comfy.sample
 import nodes
-import latent_preview
 from PIL import Image
 import torchvision.transforms.functional as F
 from scipy.ndimage import gaussian_filter, label, find_objects, grey_dilation, binary_closing, binary_fill_holes
 
-# region: --- Helper functions from InpaintStitchImproved ---
-# Мы импортируем все необходимые и хорошо написанные вспомогательные функции.
-# Это лучший подход, чем писать свои реализации.
+# ==================================================================================
+# == Вспомогательные функции, перенесенные из InpaintStitchImproved ==
+# ==================================================================================
 
 def rescale_i(samples, width, height, algorithm: str):
-    """Rescales an image tensor (BHWC)."""
+    """Rescales an image tensor."""
     samples = samples.movedim(-1, 1)
-    # getattr(Image, algorithm.upper()) -> Image.BICUBIC etc.
+    # PIL algorithms are all uppercase
     rescale_pil_algorithm = getattr(Image, algorithm.upper())
-    pil_img = F.to_pil_image(samples[0].cpu())
-    rescaled_pil = pil_img.resize((width, height), rescale_pil_algorithm)
-    rescaled_tensor = F.to_tensor(rescaled_pil).unsqueeze(0)
-    return rescaled_tensor.movedim(1, -1)
+    rescaled_tensors = []
+    for sample in samples:
+        pil_img = F.to_pil_image(sample.cpu())
+        rescaled_pil = pil_img.resize((width, height), rescale_pil_algorithm)
+        rescaled_tensors.append(F.to_tensor(rescaled_pil))
+    
+    output = torch.stack(rescaled_tensors).to(samples.device)
+    return output.movedim(1, -1)
 
 def rescale_m(samples, width, height, algorithm: str):
-    """Rescales a mask tensor (BHW)."""
+    """Rescales a mask tensor."""
     samples = samples.unsqueeze(1)
     rescale_pil_algorithm = getattr(Image, algorithm.upper())
-    pil_img = F.to_pil_image(samples[0].cpu())
-    rescaled_pil = pil_img.resize((width, height), rescale_pil_algorithm)
-    rescaled_tensor = F.to_tensor(rescaled_pil).unsqueeze(0)
-    return rescaled_tensor.squeeze(1)
+    rescaled_tensors = []
+    for sample in samples:
+        pil_img = F.to_pil_image(sample.cpu())
+        rescaled_pil = pil_img.resize((width, height), rescale_pil_algorithm)
+        rescaled_tensors.append(F.to_tensor(rescaled_pil))
+        
+    output = torch.stack(rescaled_tensors).to(samples.device)
+    return output.squeeze(1)
 
-def blur_m(samples, pixels):
-    """Blurs a mask tensor."""
-    if pixels == 0:
-        return samples
-    mask = samples.squeeze(0)
-    sigma = pixels / 4.0
-    mask_np = mask.cpu().numpy()
-    blurred_mask = gaussian_filter(mask_np, sigma=sigma)
-    blurred_mask = torch.from_numpy(blurred_mask).float()
-    blurred_mask = torch.clamp(blurred_mask, 0.0, 1.0)
-    return blurred_mask.unsqueeze(0)
+def hipassfilter_m(samples, threshold):
+    """Filters mask values lower than a threshold."""
+    filtered_mask = samples.clone()
+    filtered_mask[filtered_mask < threshold] = 0
+    return filtered_mask
 
 def expand_m(mask, pixels):
-    """Expands a mask tensor using grey dilation."""
+    """Expands a mask by a given number of pixels using grey dilation."""
     if pixels == 0:
         return mask
-    sigma = pixels / 4.0
+    sigma = pixels / 4
     mask_np = mask.squeeze(0).cpu().numpy()
     kernel_size = math.ceil(sigma * 1.5 + 1)
     kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
     dilated_mask = grey_dilation(mask_np, footprint=kernel)
-    dilated_mask = torch.clamp(torch.from_numpy(dilated_mask.astype(np.float32)), 0.0, 1.0)
+    dilated_mask = dilated_mask.astype(np.float32)
+    dilated_mask = torch.from_numpy(dilated_mask).to(mask.device)
+    dilated_mask = torch.clamp(dilated_mask, 0.0, 1.0)
     return dilated_mask.unsqueeze(0)
+
+def blur_m(samples, pixels):
+    """Blurs a mask using a Gaussian filter."""
+    if pixels == 0:
+        return samples
+    mask = samples.squeeze(0)
+    sigma = pixels / 4 
+    mask_np = mask.cpu().numpy()
+    blurred_mask = gaussian_filter(mask_np, sigma=sigma)
+    blurred_mask = torch.from_numpy(blurred_mask).float().to(samples.device)
+    blurred_mask = torch.clamp(blurred_mask, 0.0, 1.0)
+    return blurred_mask.unsqueeze(0)
+
+def findcontextarea_m(mask):
+    """Finds the bounding box of the non-zero area in a mask."""
+    mask_squeezed = mask[0]
+    non_zero_indices = torch.nonzero(mask_squeezed)
+
+    if non_zero_indices.numel() == 0:
+        return None, -1, -1, -1, -1
+
+    y_min, x_min = torch.min(non_zero_indices, dim=0).values.tolist()
+    y_max, x_max = torch.max(non_zero_indices, dim=0).values.tolist()
     
+    w = x_max - x_min + 1
+    h = y_max - y_min + 1
+    
+    context = mask[:, y_min:y_min+h, x_min:x_min+w]
+    return context, x_min, y_min, w, h
+
 def pad_to_multiple(value, multiple):
-    """Calculates the padded value to be a multiple of a number."""
+    """Pads a value to be a multiple of another value."""
     return int(math.ceil(value / multiple) * multiple)
 
 def crop_magic_im(image, mask, x, y, w, h, target_w, target_h, padding, downscale_algorithm, upscale_algorithm):
     """
-    Core cropping logic. Creates a canvas, adjusts for aspect ratio,
-    and returns the cropped sections and coordinates.
+    Core cropping function. Determines the right context area, grows the image canvas if needed,
+    and crops/resizes the area to the target dimensions.
     """
     image = image.clone()
     mask = mask.clone()
@@ -80,96 +112,105 @@ def crop_magic_im(image, mask, x, y, w, h, target_w, target_h, padding, downscal
     B, image_h, image_w, C = image.shape
     context_aspect_ratio = w / h
 
-    new_x, new_y, new_w, new_h = x, y, w, h
-
     if context_aspect_ratio < target_aspect_ratio:
         new_w = int(h * target_aspect_ratio)
+        new_h = h
         new_x = x - (new_w - w) // 2
+        new_y = y
     else:
+        new_w = w
         new_h = int(w / target_aspect_ratio)
+        new_x = x
         new_y = y - (new_h - h) // 2
-    
-    # Simple boundary clamp for Detailer's purpose
-    # The original has more complex logic to shift the box if it overflows,
-    # but for Detailer, we just expand and let it create a canvas.
-    
-    up_padding = max(0, -new_y)
-    down_padding = max(0, (new_y + new_h) - image_h)
-    left_padding = max(0, -new_x)
-    right_padding = max(0, (new_x + new_w) - image_w)
+        
+    # Simplified boundary adjustment from InpaintStitchImproved
+    if new_x < 0: new_x = 0
+    if new_y < 0: new_y = 0
+    if new_x + new_w > image_w: new_x = image_w - new_w
+    if new_y + new_h > image_h: new_y = image_h - new_h
 
-    expanded_image_h = image_h + up_padding + down_padding
-    expanded_image_w = image_w + left_padding + right_padding
+    # Check for negative dimensions after clamping
+    new_x = max(0, new_x)
+    new_y = max(0, new_y)
+    new_w = min(new_w, image_w - new_x)
+    new_h = min(new_h, image_h - new_y)
+
+    up_padding, down_padding, left_padding, right_padding = 0, 0, 0, 0
+    if new_x < 0: left_padding = -new_x
+    if new_y < 0: up_padding = -new_y
+    if new_x + new_w > image_w: right_padding = (new_x + new_w) - image_w
+    if new_y + new_h > image_h: down_padding = (new_y + new_h) - image_h
     
+    expanded_image_w = image_w + left_padding + right_padding
+    expanded_image_h = image_h + up_padding + down_padding
+
     canvas_image = torch.zeros((B, expanded_image_h, expanded_image_w, C), device=image.device)
     canvas_mask = torch.ones((B, expanded_image_h, expanded_image_w), device=mask.device)
 
-    img_bchw = image.movedim(-1, 1)
-    canvas_bchw = canvas_image.movedim(-1, 1)
-
-    canvas_bchw[:, :, up_padding:up_padding + image_h, left_padding:left_padding + image_w] = img_bchw
-
-    # Edge pixel padding
-    if up_padding > 0:
-        canvas_bchw[:, :, :up_padding, left_padding:left_padding + image_w] = img_bchw[:, :, 0:1, :]
-    if down_padding > 0:
-        canvas_bchw[:, :, -down_padding:, left_padding:left_padding + image_w] = img_bchw[:, :, -1:, :]
-    if left_padding > 0:
-        canvas_bchw[:, :, :, :left_padding] = canvas_bchw[:, :, :, left_padding:left_padding+1]
-    if right_padding > 0:
-        canvas_bchw[:, :, :, -right_padding:] = canvas_bchw[:, :, :, -right_padding-1:-right_padding]
-
-    canvas_image = canvas_bchw.movedim(1, -1)
+    canvas_image[:, up_padding:up_padding + image_h, left_padding:left_padding + image_w, :] = image
     canvas_mask[:, up_padding:up_padding + image_h, left_padding:left_padding + image_w] = mask
+
+    # Simplified edge padding (pixel replication)
+    if up_padding > 0: canvas_image[:, :up_padding, :, :] = canvas_image[:, up_padding:up_padding+1, :, :].repeat(1, up_padding, 1, 1)
+    if down_padding > 0: canvas_image[:, -down_padding:, :, :] = canvas_image[:, -down_padding-1:-down_padding, :, :].repeat(1, down_padding, 1, 1)
+    if left_padding > 0: canvas_image[:, :, :left_padding, :] = canvas_image[:, :, left_padding:left_padding+1, :].repeat(1, 1, left_padding, 1)
+    if right_padding > 0: canvas_image[:, :, -right_padding:, :] = canvas_image[:, :, -right_padding-1:-right_padding, :].repeat(1, 1, right_padding, 1)
 
     cto_x, cto_y, cto_w, cto_h = left_padding, up_padding, image_w, image_h
     ctc_x, ctc_y, ctc_w, ctc_h = new_x + left_padding, new_y + up_padding, new_w, new_h
 
     cropped_image = canvas_image[:, ctc_y:ctc_y + ctc_h, ctc_x:ctc_x + ctc_w]
     cropped_mask = canvas_mask[:, ctc_y:ctc_y + ctc_h, ctc_x:ctc_x + ctc_w]
-    
-    rescale_algo = upscale_algorithm if target_w > ctc_w or target_h > ctc_h else downscale_algorithm
-    
-    final_cropped_image = rescale_i(cropped_image, target_w, target_h, rescale_algo)
-    final_cropped_mask = rescale_m(cropped_mask, target_w, target_h, "nearest") # mask is always nearest
 
-    return canvas_image, cto_x, cto_y, cto_w, cto_h, final_cropped_image, final_cropped_mask, ctc_x, ctc_y, ctc_w, ctc_h
+    rescale_algorithm = upscale_algorithm if target_w > ctc_w or target_h > ctc_h else downscale_algorithm
+    
+    # Ensure cropped dimensions are positive before rescaling
+    if cropped_image.shape[1] > 0 and cropped_image.shape[2] > 0:
+        cropped_image = rescale_i(cropped_image, target_w, target_h, rescale_algorithm)
+        cropped_mask = rescale_m(cropped_mask, target_w, target_h, "nearest") # mask resize is always nearest
+    else: # If crop is empty, return empty tensors of target size
+        cropped_image = torch.zeros((B, target_h, target_w, C), device=image.device)
+        cropped_mask = torch.zeros((B, target_h, target_w), device=mask.device)
+
+
+    return canvas_image, cto_x, cto_y, cto_w, cto_h, cropped_image, cropped_mask, ctc_x, ctc_y, ctc_w, ctc_h
 
 def stitch_magic_im(canvas_image, inpainted_image, mask, ctc_x, ctc_y, ctc_w, ctc_h, cto_x, cto_y, cto_w, cto_h, downscale_algorithm, upscale_algorithm):
     """
-    Core stitching logic. Resizes the inpainted result, blends it onto
-    the canvas, and crops back to original dimensions.
+    Core stitching function. Resizes the inpainted result, blends it into the canvas, and
+    crops the canvas back to the original image dimensions.
     """
     canvas_image = canvas_image.clone()
-    
-    rescale_algo = upscale_algorithm if ctc_w > inpainted_image.shape[2] or ctc_h > inpainted_image.shape[1] else downscale_algorithm
+    inpainted_image = inpainted_image.clone()
+    mask = mask.clone()
 
-    resized_image = rescale_i(inpainted_image, ctc_w, ctc_h, rescale_algo)
-    # Mask should be rescaled with a smooth algorithm for good blending
-    resized_mask = rescale_m(mask, ctc_w, ctc_h, "bicubic")
+    rescale_algorithm = upscale_algorithm if ctc_w > inpainted_image.shape[2] or ctc_h > inpainted_image.shape[1] else downscale_algorithm
+    resized_image = rescale_i(inpainted_image, ctc_w, ctc_h, rescale_algorithm)
+    resized_mask = rescale_m(mask, ctc_w, ctc_h, "bilinear") # bilinear for smooth blend
 
     resized_mask = resized_mask.clamp(0, 1).unsqueeze(-1)
+    
     canvas_crop = canvas_image[:, ctc_y:ctc_y + ctc_h, ctc_x:ctc_x + ctc_w]
-
+    
     blended = resized_mask * resized_image + (1.0 - resized_mask) * canvas_crop
     canvas_image[:, ctc_y:ctc_y + ctc_h, ctc_x:ctc_x + ctc_w] = blended
 
     output_image = canvas_image[:, cto_y:cto_y + cto_h, cto_x:cto_x + cto_w]
     return output_image
 
-# endregion
+
+# ==================================================================================
+# ==                         ОБНОВЛЕННАЯ НОДА DETAILER                            ==
+# ==================================================================================
 
 class DetailerForEachMask:
     """
     Эта нода последовательно детализирует области на изображении, указанные масками.
+    Использует улучшенный пайплайн кропа и сшивания для более надежной и гибкой обработки.
     Она перебирает каждую маску, вырезает соответствующую область с контекстом,
     применяет семплер для детализации, а затем вшивает результат обратно.
-    Идеально подходит для улучшения лиц, объектов или других деталей с помощью BBOX или сегментационных масок.
-    РЕФАКТОРИНГ: Использует улучшенную и более надежную логику кропа/сшивки из ноды InpaintStitchImproved.
     """
     
-    upscale_methods = ["nearest", "bilinear", "bicubic", "lanczos", "box", "hamming"]
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -189,17 +230,16 @@ class DetailerForEachMask:
                 "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"tooltip": "Планировщик шагов для семплера."}),
                 "denoise": ("FLOAT", {"default": 0.4, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Сила обесшумливания. 1.0 — полное изменение области, <1.0 — сохранение части исходной структуры."}),
 
-                # Crop & Stitch settings
-                "context_expand_pixels": ("INT", {"default": 32, "min": 0, "max": 512, "step": 8, "tooltip": "На сколько пикселей расширить область контекста вокруг каждой маски."}),
-                "blur_mask_pixels": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 64.0, "step": 0.1, "tooltip": "Размытие маски для инпейнтинга (до VAE). Помогает создать более плавные края в латенте."}),
-                "blend_pixels": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 64.0, "step": 0.1, "tooltip": "Радиус размытия для плавного смешивания обработанного участка с исходным изображением."}),
-                "grow_mask_by": ("INT", {"default": 6, "min": 0, "max": 64, "step": 1, "tooltip": "На сколько пикселей расширить маску в латентном пространстве для предотвращения жестких краев."}),
+                # Crop & Stitch settings (from InpaintStitchImproved)
+                "mask_expand_pixels": ("INT", {"default": 32, "min": 0, "max": 512, "step": 1, "tooltip": "Расширить каждую маску на указанное количество пикселей для создания контекста."}),
+                "mask_blend_pixels": ("INT", {"default": 8, "min": 0, "max": 64, "step": 1, "tooltip": "Размытие краев итоговой маски для плавного смешивания."}),
+                "mask_hipass_filter": ("FLOAT", {"default": 0.0, "min": 0, "max": 1, "step": 0.01, "tooltip": "Игнорировать значения в маске ниже этого порога. 0 = выключено."}),
                 
                 # Rescale settings
                 "force_width": ("INT", {"default": 512, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 8, "tooltip": "Принудительная ширина области для семплирования. 0 = авто."}),
                 "force_height": ("INT", {"default": 512, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 8, "tooltip": "Принудительная высота области для семплирования. 0 = авто."}),
-                "downscale_algorithm": (cls.upscale_methods, {"default": "bilinear", "tooltip": "Алгоритм для уменьшения масштаба."}),
-                "upscale_algorithm": (cls.upscale_methods, {"default": "bicubic", "tooltip": "Алгоритм для увеличения масштаба."}),
+                "downscale_algorithm": (["nearest", "bilinear", "bicubic", "lanczos", "area"], {"default": "bilinear"}),
+                "upscale_algorithm": (["nearest", "bilinear", "bicubic", "lanczos"], {"default": "bicubic"}),
                 "padding": ([8, 16, 32, 64, 128, 256], {"default": 32, "tooltip": "Выравнивание размера вырезанной области. Ее ширина и высота будут кратны этому значению."}),
 
                 # Mask processing order
@@ -210,37 +250,49 @@ class DetailerForEachMask:
 
     RETURN_TYPES = ("IMAGE", "LATENT", "MASK")
     RETURN_NAMES = ("image", "latent", "processed_masks")
+    OUTPUT_TOOLTIPS = (
+        "Детализированное изображение.",
+        "Латент финального изображения.",
+        "Комбинированная маска всех обработанных областей с учетом размытия для смешивания."
+    )
     FUNCTION = "detail_sequentially"
     CATEGORY = "😎 SnJake/Detailer"
 
+
     def detail_sequentially(self, model, positive, negative, vae, image, masks,
                             noise_seed, steps, cfg, sampler_name, scheduler, denoise,
-                            context_expand_pixels, blur_mask_pixels, blend_pixels, grow_mask_by,
+                            mask_expand_pixels, mask_blend_pixels, mask_hipass_filter,
                             force_width, force_height, downscale_algorithm, upscale_algorithm, padding,
                             mask_process_order):
         
         if masks.numel() == 0 or masks.max() == 0:
-            print("Маски не найдены или пусты. Возвращается исходное изображение.")
-            # Исправлено: VAE ожидает BCHW, а не BHWC
-            final_latent_tensor = vae.encode(image[:,:,:,:3].movedim(-1, 1))
-            return (image, {"samples": final_latent_tensor}, torch.zeros_like(masks))
+            print("DetailerForEachPipe: Маски не найдены или пусты. Возвращается исходное изображение.")
+            latent = vae.encode(image[:,:,:,:3])
+            return (image, {"samples": latent}, torch.zeros_like(masks[:,:,:]))
 
         mask_np = masks.cpu().numpy().squeeze()
         labeled_array, num_features = label(mask_np > 0.5)
-        if num_features == 0:
-            # Исправлено: VAE ожидает BCHW, а не BHWC
-            final_latent_tensor = vae.encode(image[:,:,:,:3].movedim(-1, 1))
-            return (image, {"samples": final_latent_tensor}, torch.zeros_like(masks))
-            
+        if num_features == 0: 
+            print("DetailerForEachPipe: Не найдено отдельных областей в масках.")
+            return (image, {"samples": vae.encode(image[:,:,:,:3])}, torch.zeros_like(masks[:,:,:]))
+
         found_objects = find_objects(labeled_array)
-        decorated_masks = [{'slice': slc, 'label': i + 1, 'area': np.sum(labeled_array[slc] == i + 1),
-                            'center_y': slc[0].start + (slc[0].stop - slc[0].start) / 2,
-                            'center_x': slc[1].start + (slc[1].stop - slc[1].start) / 2}
-                           for i, slc in enumerate(found_objects) if slc is not None]
+        decorated_masks = []
+        for i, slc in enumerate(found_objects):
+            if slc is None: continue
+            mask_label = i + 1
+            coords = np.argwhere(labeled_array[slc] == mask_label)
+            if coords.size == 0: continue
+            center_y, center_x = np.mean(coords, axis=0)
+            center_y += slc[0].start
+            center_x += slc[1].start
+            area = len(coords)
+            decorated_masks.append({'slice': slc, 'center_x': center_x, 'center_y': center_y, 'area': area, 'label': mask_label})
 
         sort_key_map = {"слева-направо": "center_x", "справа-налево": "center_x", "сверху-вниз": "center_y", "снизу-вверх": "center_y", "от большей к меньшей": "area", "от меньшей к большей": "area"}
+        reverse_map = {"справа-налево", "снизу-вверх", "от большей к меньшей"}
         if mask_process_order in sort_key_map:
-            decorated_masks.sort(key=lambda m: m[sort_key_map[mask_process_order]], reverse=(mask_process_order in {"справа-налево", "снизу-вверх", "от большей к меньшей"}))
+            decorated_masks.sort(key=lambda m: m[sort_key_map[mask_process_order]], reverse=(mask_process_order in reverse_map))
         elif mask_process_order == "случайно":
             import random
             random.shuffle(decorated_masks)
@@ -251,84 +303,85 @@ class DetailerForEachMask:
         pbar = comfy.utils.ProgressBar(num_features)
 
         for i, mask_info in enumerate(decorated_masks):
-            print(f"Обработка маски {i+1}/{num_features}...")
+            print(f"DetailerForEachPipe: Обработка маски {i+1}/{num_features}...")
             
+            # 1. Подготовка индивидуальной маски для текущей области
             current_mask_np = (labeled_array == mask_info['label']).astype(np.float32)
-            current_mask_tensor = torch.from_numpy(current_mask_np).to(image.device).unsqueeze(0)
+            individual_mask = torch.from_numpy(current_mask_np).to(image.device).unsqueeze(0)
             
-            if blur_mask_pixels > 0:
-                inpaint_mask = blur_m(current_mask_tensor, blur_mask_pixels)
-            else:
-                inpaint_mask = current_mask_tensor
+            # Применяем новые опции обработки маски
+            if mask_hipass_filter > 0.0:
+                individual_mask = hipassfilter_m(individual_mask, mask_hipass_filter)
+            if mask_expand_pixels > 0:
+                individual_mask = expand_m(individual_mask, mask_expand_pixels)
 
-            slc = mask_info['slice']
-            y_min, y_max = slc[0].start, slc[0].stop
-            x_min, x_max = slc[1].start, slc[1].stop
+            # 2. Находим bbox для кропа
+            _, x, y, w, h = findcontextarea_m(individual_mask)
+            if x == -1:
+                print(f"DetailerForEachPipe: Пропуск пустой маски {i+1}.")
+                continue
 
-            x = x_min - context_expand_pixels
-            y = y_min - context_expand_pixels
-            w = (x_max - x_min) + 2 * context_expand_pixels
-            h = (y_max - y_min) + 2 * context_expand_pixels
-
+            # 3. Выполняем "магический" кроп
             target_w = force_width if force_width > 0 else w
             target_h = force_height if force_height > 0 else h
 
-            canvas_image, cto_x, cto_y, cto_w, cto_h, \
-            cropped_image, cropped_mask, \
-            ctc_x, ctc_y, ctc_w, ctc_h = crop_magic_im(
-                image_to_process, inpaint_mask, x, y, w, h,
-                target_w, target_h, padding, downscale_algorithm, upscale_algorithm
-            )
+            (canvas_image, cto_x, cto_y, cto_w, cto_h, 
+             cropped_image, cropped_mask, 
+             ctc_x, ctc_y, ctc_w, ctc_h) = crop_magic_im(
+                image_to_process, individual_mask, x, y, w, h, target_w, target_h, 
+                padding, downscale_algorithm, upscale_algorithm
+             )
             
-            if cropped_image.shape[1] == 0 or cropped_image.shape[2] == 0: continue
+            if cropped_image.shape[1] == 0 or cropped_image.shape[2] == 0:
+                print(f"DetailerForEachPipe: Пропуск маски {i+1} из-за нулевого размера области кропа.")
+                continue
 
-            latent_mask_for_inpaint = cropped_mask.clone()
-            pixels_for_concat = cropped_image * (1.0 - latent_mask_for_inpaint.round().unsqueeze(-1))
+            # 4. Подготовка к семплированию (логика из старого Detailer)
+            pixels_for_concat = cropped_image.clone()
+            # Инвертируем маску для inpainting conditioning
+            m = (1.0 - cropped_mask.round()).unsqueeze(-1)
+            pixels_for_concat = (pixels_for_concat - 0.5) * m + 0.5
             
-            # ИСПРАВЛЕНО: vae.encode() возвращает BCHW, второй movedim не нужен
-            concat_latent = vae.encode(pixels_for_concat.movedim(-1, 1))
-            initial_latent_samples = vae.encode(cropped_image.movedim(-1, 1))
-
+            concat_latent = vae.encode(pixels_for_concat)
+            initial_latent_samples = vae.encode(cropped_image)
             latent_for_sampler = {"samples": initial_latent_samples}
-            mask_for_sampler = latent_mask_for_inpaint.reshape((-1, 1, latent_mask_for_inpaint.shape[-2], latent_mask_for_inpaint.shape[-1]))
             
-            if grow_mask_by > 0:
-                grown_mask = expand_m(mask_for_sampler.squeeze(0), grow_mask_by*2).unsqueeze(0)
-            else:
-                grown_mask = mask_for_sampler
-
+            # Используем cropped_mask для noise_mask
+            mask_for_sampler = cropped_mask.reshape((-1, 1, cropped_mask.shape[-2], cropped_mask.shape[-1]))
             latent_h, latent_w = initial_latent_samples.shape[2], initial_latent_samples.shape[3]
-            latent_for_sampler["noise_mask"] = torch.nn.functional.interpolate(grown_mask, size=(latent_h, latent_w), mode="bilinear")
+            latent_for_sampler["noise_mask"] = torch.nn.functional.interpolate(mask_for_sampler, size=(latent_h, latent_w), mode="bilinear").squeeze(1)
 
-            positive_inpaint = [[c[0], {**c[1], 'concat_latent_image': concat_latent, 'concat_mask': mask_for_sampler}] for c in positive]
-            negative_inpaint = [[c[0], {**c[1], 'concat_latent_image': concat_latent, 'concat_mask': mask_for_sampler}] for c in negative]
+            def create_inpaint_cond(cond_list):
+                return [[c[0], {**c[1], 'concat_latent_image': concat_latent, 'concat_mask': mask_for_sampler}] for c in cond_list]
             
-            latent_out = nodes.common_ksampler(model, noise_seed, steps, cfg, sampler_name, scheduler, positive_inpaint, negative_inpaint, latent_for_sampler, denoise=denoise)[0]
+            positive_inpaint, negative_inpaint = create_inpaint_cond(positive), create_inpaint_cond(negative)
+            
+            # 5. Семплирование
+            latent_out = nodes.common_ksampler(model, noise_seed, steps, cfg, sampler_name, scheduler, positive_inpaint, negative_inpaint, latent_for_sampler, denoise=denoise)
             noise_seed += 1
-            
-            # ИСПРАВЛЕНО: latent_out["samples"] уже BCHW. vae.decode() возвращает BCHW, который надо перевести в BHWC.
-            decoded_crop = vae.decode(latent_out["samples"]).movedim(1, -1)
 
-            blend_mask = blur_m(cropped_mask, blend_pixels)
+            # 6. Декодирование и "магическое" сшивание
+            decoded_crop = vae.decode(latent_out[0]["samples"])
             
+            # Создаем маску для блендинга
+            blending_mask = blur_m(cropped_mask, mask_blend_pixels)
+
             image_to_process = stitch_magic_im(
-                canvas_image, decoded_crop, blend_mask,
-                ctc_x, ctc_y, ctc_w, ctc_h,
-                cto_x, cto_y, cto_w, cto_h,
+                canvas_image, decoded_crop, blending_mask, 
+                ctc_x, ctc_y, ctc_w, ctc_h, 
+                cto_x, cto_y, cto_w, cto_h, 
                 downscale_algorithm, upscale_algorithm
             )
             
-            temp_mask_canvas = torch.zeros_like(canvas_image[:,:,:,0])
-            blend_mask_resized = rescale_m(blend_mask, ctc_w, ctc_h, "bicubic")
-            temp_mask_canvas[:, ctc_y:ctc_y+ctc_h, ctc_x:ctc_x+ctc_w] = blend_mask_resized
-            processed_part_mask = temp_mask_canvas[:, cto_y:cto_y+cto_h, cto_x:cto_x+cto_w]
-            
-            final_processed_mask = torch.max(final_processed_mask, processed_part_mask)
+            # Собираем итоговую маску обработанных областей
+            temp_canvas_mask = torch.zeros_like(canvas_image[:,:,:,0])
+            blending_mask_resized = rescale_m(blending_mask, ctc_w, ctc_h, "bilinear")
+            temp_canvas_mask[:, ctc_y:ctc_y+ctc_h, ctc_x:ctc_x+ctc_w] = blending_mask_resized
+            final_processed_mask += temp_canvas_mask[:, cto_y:cto_y+cto_h, cto_x:cto_x+cto_w]
+
             pbar.update(1)
         
         final_processed_mask.clamp_(0.0, 1.0)
-        
-        # ИСПРАВЛЕНО: VAE ожидает BCHW. Результат нужно обернуть в словарь.
-        final_latent_tensor = vae.encode(image_to_process[:,:,:,:3].movedim(-1, 1))
-        
-        return (image_to_process, {"samples": final_latent_tensor}, final_processed_mask.squeeze(0))
+        final_latent = vae.encode(image_to_process[:,:,:,:3])
+
+        return (image_to_process, {"samples": final_latent}, final_processed_mask.squeeze(0))
