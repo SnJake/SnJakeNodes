@@ -57,6 +57,8 @@ from .detailer_node import DetailerForEachMask
 
 from .lora_switch import LoraSwitchDynamic
 
+from .ultralytics import YoloModelLoader, YoloInference
+
 # Регистарция путей
 import os
 import folder_paths
@@ -184,6 +186,9 @@ NODE_CLASS_MAPPINGS = {
     "DetailerForEachMask": DetailerForEachMask,
 
     "LoraSwitchDynamic": LoraSwitchDynamic,
+    
+    "YoloModelLoader": YoloModelLoader,
+    "YoloInference": YoloInference,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -243,6 +248,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DetailerForEachMask": "😎 Sequential Mask Detailer",
     
     "LoraSwitchDynamic": "😎 Lora Switcher",
+
+    "YoloModelLoader": "😎 YOLO Loader",
+    "YoloInference": "😎 YOLO Switcher",
 
 
 }
