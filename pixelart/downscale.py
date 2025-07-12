@@ -5,8 +5,6 @@ import kornia.filters
 
 def compute_adaptive_pixel_sizes(image, base_pixel_size, metric):
     """Computes a map of pixel sizes based on image content."""
-    # (Скопируйте код _compute_adaptive_pixel_sizes из вашего узла)
-    # ... (код без изменений) ...
     B, C, H, W = image.shape
     device = image.device
     image_float = image.float() # Ensure float
@@ -62,8 +60,6 @@ def compute_adaptive_pixel_sizes(image, base_pixel_size, metric):
 
 def adaptive_downscale(image, pixel_size_map):
     """Performs adaptive downscaling using the pixel size map (slow version)."""
-    # (Скопируйте код _adaptive_downscale из вашего узла)
-    # ... (код без изменений) ...
     batch_size, channels, height, width = image.shape
     device = image.device
     dtype = image.dtype
