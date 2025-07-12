@@ -790,8 +790,3 @@ def determine_optimal_num_colors_dbi(pixels_rgb, method, max_k=16, sample_size=5
 
     print(f"DBI calculation finished. Best K={best_k} with DBI={best_dbi:.4f}")
     return best_k
-
-# --- Остальные возможные утилиты (если нужны) ---
-# Например, _adaptive_downscale, _compute_adaptive_pixel_sizes, _apply_smoothing и т.д.
-# можно перенести сюда, если они будут использоваться в нескольких местах.
-# Пока они специфичны для PixelArtNode, их можно оставить там.
