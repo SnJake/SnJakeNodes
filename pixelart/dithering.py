@@ -48,8 +48,6 @@ def apply_dithering(
     apply_fixed_palette_func # Function to map image to palette
     ):
     """Applies dithering to an image using a specified palette. Operates entirely in RGB."""
-    # (Скопируйте код _apply_dithering из вашего узла, заменив self._apply_fixed_palette на apply_fixed_palette_func)
-    # ... (код без изменений, кроме замены self._apply_fixed_palette) ...
     B, C, H, W = image_rgb_source.shape
     device = image_rgb_source.device
 
