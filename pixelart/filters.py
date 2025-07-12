@@ -4,7 +4,6 @@ import kornia.filters
 
 def box_blur(img, radius):
     """Applies a box blur using Kornia."""
-    # (Скопируйте код _box_blur из вашего узла)
     kernel_size = (2 * radius + 1, 2 * radius + 1)
     # Use Kornia's box_blur with reflection padding for better edge handling
     try:
@@ -17,7 +16,6 @@ def box_blur(img, radius):
 
 def guided_filter(input_image, guide_image, radius, eps):
     """Applies a Guided Filter."""
-    # (Скопируйте код _guided_filter из вашего узла)
     # Ensure inputs are float32 for calculations
     input_f = input_image.float()
     guide_f = guide_image.float()
@@ -42,7 +40,6 @@ def guided_filter(input_image, guide_image, radius, eps):
 
 def apply_smoothing(image, smoothing, filter_type, edge_preservation, advanced_filter):
     """Applies smoothing and optional advanced filters."""
-    # (Скопируйте код _apply_smoothing из вашего узла, заменив self._guided_filter/box_blur)
     if smoothing <= 0 and advanced_filter == "none":
         return image # No smoothing/filtering needed
 
