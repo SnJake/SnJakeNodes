@@ -93,7 +93,7 @@ class ResizeAllMasks:
 
 class BlurImageByMasks:
     """
-    Нода для применения Гауссова размытия на изображение по областям масок.
+    Нода для применения Гауссова размытия на изображение по областям масок с растушевкой краев.
     """
     CATEGORY = "😎 SnJake/Effects"
     FUNCTION = "blur"
@@ -106,27 +106,41 @@ class BlurImageByMasks:
             "required": {
                 "image": ("IMAGE",),
                 "masks": ("MASK",),
-                "blur_radius": ("INT", {"default": 25, "min": 1, "max": 201, "step": 2}),
+                "blur_radius": ("INT", {"default": 25, "min": 1, "max": 201, "step": 2, "tooltip": "Сила размытия для самого изображения."}),
+                "feather_amount": ("INT", {"default": 15, "min": 0, "max": 201, "step": 2, "tooltip": "Сила размытия краев маски для создания плавного перехода."}),
             }
         }
 
-    def blur(self, image, masks, blur_radius):
-        if blur_radius % 2 == 0:
-            blur_radius += 1
-            
+    def blur(self, image, masks, blur_radius, feather_amount):
+        # 1. Готовим полностью размытое изображение
+        if blur_radius % 2 == 0: blur_radius += 1
+        
         image_bchw = image.permute(0, 3, 1, 2)
         blurred_image_bchw = TF.gaussian_blur(image_bchw, kernel_size=(blur_radius, blur_radius))
         blurred_image = blurred_image_bchw.permute(0, 2, 3, 1)
 
+        # 2. Готовим маску (с растушевкой)
         if masks.dim() == 2:
             masks = masks.unsqueeze(0)
+        
+        # Совмещаем количество масок и изображений
         if masks.shape[0] != image.shape[0]:
             if masks.shape[0] == 1:
                 masks = masks.repeat(image.shape[0], 1, 1)
             else:
-                 raise ValueError("Количество масок должно соответствовать количеству изображений в батче или быть равным 1.")
+                 raise ValueError("Количество масок должно соответствовать количеству изображений или быть равным 1.")
 
-        mask_expanded = masks.unsqueeze(-1)
+        blended_mask = masks
+        if feather_amount > 0:
+            if feather_amount % 2 == 0: feather_amount += 1
+            # Добавляем канал для blur-функции: [B, H, W] -> [B, 1, H, W]
+            feather_mask = masks.unsqueeze(1)
+            blurred_mask_bchw = TF.gaussian_blur(feather_mask, kernel_size=(feather_amount, feather_amount))
+            # Убираем канал обратно: [B, 1, H, W] -> [B, H, W]
+            blended_mask = blurred_mask_bchw.squeeze(1)
+        
+        # 3. Смешиваем изображения, используя размытую маску
+        mask_expanded = blended_mask.unsqueeze(-1)
         output_image = image * (1 - mask_expanded) + blurred_image * mask_expanded
         
         return (output_image,)
