@@ -7,7 +7,6 @@ import math
 
 def to_quantize_space(image, space):
     """Converts image (RGB [0,1]) to the target quantization space."""
-    # (Скопируйте код _to_quantize_space из вашего узла)
     image = image.float().clamp(0, 1) # Вход всегда RGB [0,1]
     try:
         if space == "RGB": return image
@@ -43,7 +42,6 @@ def from_quantize_space(image, space):
 
 def convert_palette_to_string(color_palette):
     """Converts a palette tensor (RGB [0,1]) to a hex string."""
-    # (Скопируйте код _convert_palette_to_string из вашего узла)
     if color_palette is None: return "N/A"
     # Ensure tensor is on CPU and NumPy format for processing
     if isinstance(color_palette, torch.Tensor):
@@ -71,7 +69,6 @@ def convert_palette_to_string(color_palette):
 
 def calculate_dbi(pixels, labels, centroids):
     """Calculates the Davies-Bouldin Index."""
-    # (Скопируйте код _davies_bouldin_index из вашего узла)
     n_clusters = centroids.shape[0]
     if n_clusters < 2:
         return float('inf') # Undefined for < 2 clusters
