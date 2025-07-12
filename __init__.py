@@ -58,6 +58,8 @@ from .detailer_node import DetailerForEachMask
 from .lora_switch import LoraSwitchDynamic
 
 from .ultralytics import YoloModelLoader, YoloInference
+from .mask_utils import ResizeAllMasks, BlurImageByMasks, OverlayImageByMasks
+
 
 # Регистарция путей
 import os
@@ -189,6 +191,10 @@ NODE_CLASS_MAPPINGS = {
     
     "YoloModelLoader": YoloModelLoader,
     "YoloInference": YoloInference,
+
+    "ResizeAllMasks": ResizeAllMasks,
+    "BlurImageByMasks": BlurImageByMasks,
+    "OverlayImageByMasks": OverlayImageByMasks,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -250,8 +256,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoraSwitchDynamic": "😎 Lora Switcher",
 
     "YoloModelLoader": "😎 YOLO Loader",
-    "YoloInference": "😎 YOLO Switcher",
+    "YoloInference": "😎 YOLO Inference",
 
+    "ResizeAllMasks": "😎 Masks Resize",
+    "BlurImageByMasks": "😎 Image Blur By Mask",
+    "OverlayImageByMasks": "😎 Image Overlay By Mask",
 
 }
 
