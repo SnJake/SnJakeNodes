@@ -49,8 +49,6 @@ def apply_fixed_palette(image_in_space, palette_in_space):
 
 def apply_fixed_palette_get_labels(image_in_space, palette_in_space):
     """Applies palette and returns labels for the first batch item."""
-    # (Скопируйте код _apply_fixed_palette_get_labels из вашего узла)
-    # ... (код без изменений) ...
     B, C, H, W = image_in_space.shape
     if palette_in_space is None or palette_in_space.shape[0] == 0:
         return image_in_space, None
@@ -149,8 +147,6 @@ def filter_small_clusters(pixels_in_space, labels, centroids_in_space, min_area)
 
 def filter_palette_by_usage(pixels_in_space, labels, palette_in_space, min_area):
     """Filters palette colors based on pixel count, reassigning pixels."""
-    # (Скопируйте код _filter_palette_by_usage из вашего узла)
-    # ... (код без изменений, но добавлено клонирование для безопасности) ...
     # Similar logic to _filter_small_clusters, but operates on a fixed palette
     if palette_in_space is None or palette_in_space.shape[0] <= 1 or labels is None:
         return labels.clone() if labels is not None else None, palette_in_space.clone() if palette_in_space is not None else None
