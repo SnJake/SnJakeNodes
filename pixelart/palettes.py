@@ -2,7 +2,6 @@ import torch
 import numpy as np
 
 # --- Данные Предустановленных Палитр ---
-# (Скопируйте словарь PREDEFINED_PALETTES из вашего кода сюда)
 PREDEFINED_PALETTES = {
     "EGA": [[0,0,0],[0,0,170],[0,170,0],[0,170,170],[170,0,0],[170,0,170],[170,85,0],[170,170,170],[85,85,85],[85,85,255],[85,255,85],[85,255,255],[255,85,85],[255,85,255],[255,255,85],[255,255,255]],
     "C64": [[0,0,0],[255,255,255],[136,0,0],[170,255,238],[204,68,204],[0,204,85],[0,0,170],[238,238,119],[221,136,85],[102,68,0],[255,119,119],[51,51,51],[119,119,119],[170,255,102],[0,136,255],[187,187,187]],
@@ -49,7 +48,6 @@ def parse_custom_palette(hex_string, device):
 
 def get_predefined_palette(name, device):
     """Gets a predefined palette tensor."""
-    # (Скопируйте код _get_predefined_palette из вашего узла)
     palette_rgb = PREDEFINED_PALETTES.get(name, PREDEFINED_PALETTES["EGA"]) # Fallback to EGA
     palette = torch.tensor(palette_rgb, device=device, dtype=torch.float32) / 255.0
     palette = torch.unique(palette, dim=0) # Remove duplicates
