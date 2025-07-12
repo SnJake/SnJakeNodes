@@ -6,7 +6,8 @@
 
 This GitHub repository is a curated collection of custom ComfyUI nodes generated with the help of neural networks. They’ve been tailored to fit my personal workflow and have proven to be reliable and functional in practice.
 
-Some nodes may have been influenced by code structures from other public repositories, which were used as reference material during the generation process. Unfortunately, I no longer recall the exact sources. ¯\_(ツ)_/¯
+Some nodes may have been influenced by code structures from other public repositories, which were used as reference material during the generation process. Unfortunately, I no longer recall the exact sources. 
+¯\_(ツ)_/¯
 ---
 
 ## 🚀 Installation
