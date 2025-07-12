@@ -22,8 +22,6 @@ COLOR_SPACE_RANGES = {
 
 def apply_fixed_palette(image_in_space, palette_in_space):
     """Applies a fixed palette using nearest color search in the feature space."""
-    # (Скопируйте код _apply_fixed_palette из вашего узла)
-    # ... (код без изменений) ...
     B, C, H, W = image_in_space.shape
     if palette_in_space is None or palette_in_space.shape[0] == 0:
         print("Warning: Attempting to apply an empty palette. Returning original image.")
@@ -74,8 +72,6 @@ def apply_fixed_palette_get_labels(image_in_space, palette_in_space):
 
 def filter_small_clusters(pixels_in_space, labels, centroids_in_space, min_area):
     """Filters K-Means clusters smaller than min_area."""
-    # (Скопируйте код _filter_small_clusters из вашего узла)
-    # ... (код без изменений, но добавлено клонирование для безопасности) ...
     if centroids_in_space is None or centroids_in_space.shape[0] <= 1 or labels is None:
         return labels.clone() if labels is not None else None, centroids_in_space.clone() if centroids_in_space is not None else None
 
@@ -231,8 +227,6 @@ def filter_palette_by_usage(pixels_in_space, labels, palette_in_space, min_area)
 
 def kmeans_plus_plus_initialization(pixels, num_colors):
     """Initializes centroids using K-Means++ algorithm."""
-    # (Скопируйте код _kmeans_plus_plus_initialization из вашего узла)
-    # ... (код без изменений) ...
     num_pixels, num_features = pixels.shape
     device = pixels.device
     centroids = torch.empty((num_colors, num_features), dtype=pixels.dtype, device=device)
@@ -291,8 +285,6 @@ def kmeans_plus_plus_initialization(pixels, num_colors):
 
 def kmeans_quantization(pixels_in_space, num_colors, max_iters):
     """Performs K-Means quantization in the provided color space."""
-    # (Скопируйте код _kmeans_quantization из вашего узла)
-    # ... (код без изменений) ...
     # Works with `pixels_in_space` in the current `processing_space`
     # Uses Euclidean distance `torch.cdist`
     device = pixels_in_space.device
@@ -403,8 +395,6 @@ def kmeans_quantization(pixels_in_space, num_colors, max_iters):
 
 def median_cut_quantization(pixels_in_space, num_colors):
     """Performs Median Cut quantization in the provided color space."""
-    # (Скопируйте код _median_cut_quantization из вашего узла)
-    # ... (код без изменений) ...
     device = pixels_in_space.device
     dtype = pixels_in_space.dtype
     num_pixels, channels = pixels_in_space.shape
@@ -551,8 +541,6 @@ def median_cut_quantization(pixels_in_space, num_colors):
 
 def wu_quantization(pixels_rgb_0_1: torch.Tensor, num_colors: int):
     """Performs Wu quantization (expects and returns RGB [0,1])."""
-    # (Скопируйте код _wu_quantization из вашего узла)
-    # ... (код без изменений) ...
     device = pixels_rgb_0_1.device
     dtype = pixels_rgb_0_1.dtype
     num_pixels, channels = pixels_rgb_0_1.shape
@@ -961,7 +949,6 @@ def sq_quantization(pixels_in_space, num_colors, processing_space, # Добав�
 # === Обновленная основная функция квантования ===
 def run_color_quantization(
     image_in_space,
-    # --- Убрали num_colors, так как он теперь в quant_params ---
     **quant_params # Принимаем все параметры через kwargs
     ):
     """
@@ -1087,9 +1074,6 @@ def run_color_quantization(
     # Возвращаем изображение и центроиды в processing_space
     return quantized_images_final, final_centroids_batch0.float()
 
-# --- Остальные функции квантования (kmeans, median_cut, wu, octree, filter_*, dbi) остаются без изменений,
-#     за исключением того, что они теперь вызываются из run_color_quantization ---
-# --- Не забудьте импортировать determine_optimal_num_colors_dbi, если она была в другом месте ---
 def determine_optimal_num_colors_dbi(pixels_rgb_sampled, method_for_dbi, max_k=16, sample_size=5000, min_k=2):
      """ Determines the optimal number of colors (K) using the Davies-Bouldin Index. """
      # (код determine_optimal_num_colors_dbi без изменений)
