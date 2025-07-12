@@ -4,8 +4,9 @@
 ![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Made for ComfyUI](https://img.shields.io/badge/Made%20for-ComfyUI-blueviolet)
 
-This repository contains a versatile collection of custom nodes for ComfyUI, designed to extend its capabilities in image processing, workflow management, and creative effects. From advanced pixel art tools to powerful utility nodes, this pack aims to enhance your creative pipeline.
+This GitHub repository is a curated collection of custom ComfyUI nodes generated with the help of neural networks. They’ve been tailored to fit my personal workflow and have proven to be reliable and functional in practice.
 
+Some nodes may have been influenced by code structures from other public repositories, which were used as reference material during the generation process. Unfortunately, I no longer recall the exact sources. ¯\_(ツ)_/¯
 ---
 
 ## 🚀 Installation
