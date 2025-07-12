@@ -279,7 +279,6 @@ app.registerExtension({
 
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function() {
-                // ... (код onNodeCreated без изменений из прошлого ответа) ...
                  const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
                  const previewWidget = new LoraPreviewWidget(this, "lora_preview_widget");
                  this.loraPreviewWidget = previewWidget;
