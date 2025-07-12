@@ -137,9 +137,6 @@ class YoloInference:
         allowed = {s.strip() for s in filter_classes.split(",") if s.strip()}
         imgs_np = [self._tensor_to_uint8(im) for im in image]
         
-        # --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ---
-        # Удален параметр imgsz. Теперь ultralytics сама подберет оптимальный размер, 
-        # сохранив пропорции изображения, что критически важно для качества детекции.
         results = model.predict(imgs_np, conf=conf, iou=iou, stream=False, verbose=False)
 
         batch_boxes: List[List[Dict]] = []
