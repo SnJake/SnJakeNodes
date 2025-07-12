@@ -1,11 +1,13 @@
+# file: ultralytics.py
+
 from pathlib import Path
 from typing import List, Dict
 
 import torch
 import numpy as np
-from ultralytics import YOLO  # pip install ultralytics>=0.4.8
+from ultralytics import YOLO
+from PIL import Image, ImageDraw, ImageFont
 
-# ComfyUI
 import folder_paths
 from server import PromptServer
 
@@ -30,9 +32,9 @@ def _resolve(r: str) -> str:
 
 # ────────────────────── ComfyUI custom types ──────────────────────
 class _Any(str):
-    def __eq__(self, other):  # type: ignore
+    def __eq__(self, other):
         return True
-    __ne__ = lambda self, other: False  # type: ignore
+    __ne__ = lambda self, other: False
 
 YOLO_MODEL = _Any("YOLO_MODEL")
 BBOX_TYPE  = _Any("BBOX")
@@ -41,7 +43,6 @@ BBOX_TYPE  = _Any("BBOX")
 class YoloModelLoader:
     CATEGORY = "😎 SnJake/YOLO"
     FUNCTION = "load"
-
     RETURN_TYPES = (YOLO_MODEL, "STRING")
     RETURN_NAMES = ("model", "model_path")
 
@@ -56,15 +57,11 @@ class YoloModelLoader:
             }
         }
 
-    # ------------------------------------------------------------------
     def load(self, task: str, model_name: str, device: str = "auto"):
         if model_name.startswith("<no models"):
-            raise FileNotFoundError("models/ultralytics пусто")
+            raise FileNotFoundError("Папка models/ultralytics пуста")
         if not model_name.startswith(f"{task}/"):
-            PromptServer.instance.send_sync(
-                "yolo_loader.warn",
-                {"msg": f"'{model_name}' не в подпапке '{task}/' – проверьте, та ли это модель."},
-            )
+            PromptServer.instance.send_sync("yolo_loader.warn", {"msg": f"'{model_name}' не в подпапке '{task}/' – проверьте, та ли это модель."})
         model = YOLO(_resolve(model_name), task="detect" if task == "bbox" else "segment")
         if device != "auto":
             model.to(device)
@@ -74,9 +71,8 @@ class YoloModelLoader:
 class YoloInference:
     CATEGORY = "😎 SnJake/YOLO"
     FUNCTION = "infer"
-
-    RETURN_TYPES = (BBOX_TYPE, "MASK")
-    RETURN_NAMES = ("bboxes", "mask")
+    RETURN_TYPES = ("IMAGE", "MASK", BBOX_TYPE)
+    RETURN_NAMES = ("image_with_bboxes", "mask", "bboxes")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -91,7 +87,6 @@ class YoloInference:
             }
         }
 
-    # ------------------------------------------------------------------
     @staticmethod
     def _tensor_to_uint8(img: torch.Tensor):
         return (img * 255).clamp(0, 255).byte().cpu().numpy()
@@ -108,19 +103,50 @@ class YoloInference:
             mask[y1:y2, x1:x2] = True
         return mask
 
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _draw_boxes(img_tensor, boxes):
+        img_np = (img_tensor.cpu().numpy() * 255).astype(np.uint8)
+        img_pil = Image.fromarray(img_np)
+        draw = ImageDraw.Draw(img_pil)
+        try:
+            font = ImageFont.truetype("arial.ttf", 20)
+        except IOError:
+            font = ImageFont.load_default(size=20)
+
+        for b in boxes:
+            xyxy = b["xyxy"]
+            label = f"{b['class_name']} {b['confidence']:.2f}"
+            draw.rectangle(xyxy, outline="red", width=3)
+            
+            text_bbox = draw.textbbox((0, 0), label, font=font)
+            text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+            
+            text_y = xyxy[1] - text_h - 5
+            if text_y < 0:
+                text_y = xyxy[1] + 2
+
+            draw.rectangle([xyxy[0], text_y, xyxy[0] + text_w + 4, text_y + text_h + 4], fill="red")
+            draw.text((xyxy[0] + 2, text_y + 2), label, fill="white", font=font)
+            
+        return torch.from_numpy(np.array(img_pil).astype(np.float32) / 255.0)
+
     def infer(self, image, model, conf: float, iou: float, filter_classes: str, mask_bbox_fuzz: int):
         if not hasattr(model, "predict"):
-            raise TypeError("Input is not a Ultralytics YOLO model")
+            raise TypeError("Входные данные не являются моделью Ultralytics YOLO")
 
         allowed = {s.strip() for s in filter_classes.split(",") if s.strip()}
-        imgs_np = [self._tensor_to_uint8(im) for im in image]  # split batch
-        results = model.predict(imgs_np, conf=conf, iou=iou, imgsz=max(image.shape[1:-1]), stream=False, verbose=False)
+        imgs_np = [self._tensor_to_uint8(im) for im in image]
+        
+        # Передаем imgsz, чтобы ultralytics сама обработала размер изображений.
+        # Это исправляет ошибку несовместимости размеров.
+        imgsz = max(image.shape[1:3])
+        results = model.predict(imgs_np, conf=conf, iou=iou, imgsz=imgsz, stream=False, verbose=False)
 
         batch_boxes: List[List[Dict]] = []
         batch_mask: List[torch.Tensor] = []
+        drawn_images: List[torch.Tensor] = []
 
-        for res in results:
+        for i, res in enumerate(results):
             boxes_cur = []
             keep_idx = []
             if res.boxes is not None:
@@ -136,20 +162,17 @@ class YoloInference:
                         "class_name": cls_name,
                     })
             batch_boxes.append(boxes_cur)
+            
+            drawn_images.append(self._draw_boxes(image[i], boxes_cur))
 
-            # choose mask source
             if getattr(res, "masks", None) is not None and keep_idx:
-                m = torch.any(res.masks.data[keep_idx].float() > 0.5, dim=0).cpu()
+                m = torch.any(res.masks.data[torch.tensor(keep_idx, device=res.masks.data.device)].float() > 0.5, dim=0).cpu()
             else:
                 h, w = res.orig_shape
                 m = self._boxes_to_mask(h, w, boxes_cur, mask_bbox_fuzz)
             batch_mask.append(m)
 
-        # stack to one tensor [B,H,W]
-        H = max(m.shape[0] for m in batch_mask)
-        W = max(m.shape[1] for m in batch_mask)
-        masks_out = torch.zeros((len(batch_mask), H, W), dtype=torch.bool)
-        for i, m in enumerate(batch_mask):
-            masks_out[i, : m.shape[0], : m.shape[1]] = m
+        images_out = torch.stack(drawn_images, dim=0)
+        masks_out = torch.stack(batch_mask, dim=0).float()
 
-        return (batch_boxes, masks_out)
+        return (images_out, masks_out, batch_boxes)
