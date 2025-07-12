@@ -80,10 +80,10 @@ class YoloInference:
             "required": {
                 "image": ("IMAGE", {}),
                 "model": (YOLO_MODEL, {"forceInput": True}),
-                "conf": ("FLOAT", {"default": 0.25, "min": 0.05, "max": 1.0, "step": 0.05}),
-                "iou": ("FLOAT", {"default": 0.45, "min": 0.1, "max": 1.0, "step": 0.05}),
+                "conf": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}), # Повысил стандартное значение
+                "iou": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}), # Повысил стандартное значение
                 "filter_classes": ("STRING", {"default": "", "placeholder": "comma‑separated names"}),
-                "mask_bbox_fuzz": ("INT", {"default": 2, "min": 0, "max": 32}),
+                "mask_bbox_fuzz": ("INT", {"default": 0, "min": 0, "max": 32}), # Убрал стандартное размытие
             }
         }
 
@@ -137,10 +137,10 @@ class YoloInference:
         allowed = {s.strip() for s in filter_classes.split(",") if s.strip()}
         imgs_np = [self._tensor_to_uint8(im) for im in image]
         
-        # Передаем imgsz, чтобы ultralytics сама обработала размер изображений.
-        # Это исправляет ошибку несовместимости размеров.
-        imgsz = max(image.shape[1:3])
-        results = model.predict(imgs_np, conf=conf, iou=iou, imgsz=imgsz, stream=False, verbose=False)
+        # --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ---
+        # Удален параметр imgsz. Теперь ultralytics сама подберет оптимальный размер, 
+        # сохранив пропорции изображения, что критически важно для качества детекции.
+        results = model.predict(imgs_np, conf=conf, iou=iou, stream=False, verbose=False)
 
         batch_boxes: List[List[Dict]] = []
         batch_mask: List[torch.Tensor] = []
@@ -173,6 +173,10 @@ class YoloInference:
             batch_mask.append(m)
 
         images_out = torch.stack(drawn_images, dim=0)
-        masks_out = torch.stack(batch_mask, dim=0).float()
+        
+        if not batch_mask: # Если масок нет, возвращаем пустой тензор
+             masks_out = torch.zeros((image.shape[0], image.shape[1], image.shape[2]), dtype=torch.float32)
+        else:
+             masks_out = torch.stack(batch_mask, dim=0).float()
 
         return (images_out, masks_out, batch_boxes)
