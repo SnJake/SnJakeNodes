@@ -3,6 +3,8 @@
 import torch
 import torchvision.transforms.functional as TF
 import numpy as np
+# Добавляем импорт для поиска связанных областей на маске
+from scipy.ndimage import label
 
 class ResizeAllMasks:
     """
@@ -148,7 +150,8 @@ class BlurImageByMasks:
 class OverlayImageByMasks:
     """
     Нода для наложения изображения по маске с автоматическим и ручным масштабированием, 
-    прозрачностью и поддержкой альфа-канала.
+    прозрачностью и поддержкой альфа-канала. 
+    Теперь обрабатывает каждую отдельную область маски независимо.
     """
     CATEGORY = "😎 SnJake/Masks"
     FUNCTION = "overlay"
@@ -194,68 +197,77 @@ class OverlayImageByMasks:
 
         overlay_bchw = overlay_image.permute(0, 3, 1, 2)
         overlay_has_alpha = overlay_bchw.shape[1] == 4
+        img_h, img_w = base_image.shape[1], base_image.shape[2]
 
         for i in range(base_image.shape[0]):
             mask = masks[i]
-            bbox = self.get_bbox_from_mask(mask)
-            if bbox is None:
+            if not torch.any(mask):
+                continue
+            
+            # --- НОВАЯ ЛОГИКА ---
+            # Находим все отдельные (несвязанные) области в маске
+            mask_np = mask.cpu().numpy().astype(np.uint8)
+            labeled_array, num_features = label(mask_np)
+            
+            if num_features == 0:
                 continue
 
-            y1, y2, x1, x2 = bbox
-            bbox_h, bbox_w = y2 - y1 + 1, x2 - x1 + 1
-            
-            # Применяем дополнительный масштаб
-            scaled_h, scaled_w = int(bbox_h * scale), int(bbox_w * scale)
-            if scaled_h == 0 or scaled_w == 0: continue
+            # Итерируемся по каждой найденной области
+            for j in range(1, num_features + 1):
+                # Создаем временную маску только для текущей области
+                component_mask_np = (labeled_array == j)
+                component_mask = torch.from_numpy(component_mask_np).to(device=mask.device, dtype=mask.dtype)
+                
+                bbox = self.get_bbox_from_mask(component_mask)
+                if bbox is None:
+                    continue
 
-            # Масштабируем оверлей
-            resized_overlay_bchw = TF.resize(overlay_bchw, size=[scaled_h, scaled_w], antialias=True)
-            resized_overlay = resized_overlay_bchw.permute(0, 2, 3, 1).squeeze(0)
+                y1, y2, x1, x2 = bbox
+                bbox_h, bbox_w = y2 - y1 + 1, x2 - x1 + 1
+                
+                # Применяем дополнительный масштаб
+                scaled_h, scaled_w = int(bbox_h * scale), int(bbox_w * scale)
+                if scaled_h == 0 or scaled_w == 0: continue
 
-            # Центрируем отмасштабированный оверлей относительно центра bbox
-            center_x, center_y = x1 + bbox_w // 2, y1 + bbox_h // 2
-            paste_x1, paste_y1 = center_x - scaled_w // 2, center_y - scaled_h // 2
-            
-            # --- Логика обрезки (Clipping) ---
-            # Область на базовом изображении, куда будем вставлять
-            img_h, img_w = base_image.shape[1], base_image.shape[2]
-            target_x1 = max(0, paste_x1)
-            target_y1 = max(0, paste_y1)
-            target_x2 = min(img_w, paste_x1 + scaled_w)
-            target_y2 = min(img_h, paste_y1 + scaled_h)
+                # Масштабируем оверлей
+                resized_overlay_bchw = TF.resize(overlay_bchw, size=[scaled_h, scaled_w], antialias=True)
+                resized_overlay = resized_overlay_bchw.permute(0, 2, 3, 1).squeeze(0)
 
-            # Область на оверлее, которую будем вырезать
-            crop_x1 = max(0, -paste_x1)
-            crop_y1 = max(0, -paste_y1)
-            crop_x2 = crop_x1 + (target_x2 - target_x1)
-            crop_y2 = crop_y1 + (target_y2 - target_y1)
+                # Центрируем отмасштабированный оверлей относительно центра bbox
+                center_x, center_y = x1 + bbox_w // 2, y1 + bbox_h // 2
+                paste_x1, paste_y1 = center_x - scaled_w // 2, center_y - scaled_h // 2
+                
+                # --- Логика обрезки (Clipping) ---
+                target_x1 = max(0, paste_x1)
+                target_y1 = max(0, paste_y1)
+                target_x2 = min(img_w, paste_x1 + scaled_w)
+                target_y2 = min(img_h, paste_y1 + scaled_h)
 
-            if target_x1 >= target_x2 or target_y1 >= target_y2: continue
-            
-            # Вырезаем нужные части
-            base_region = output_image[i, target_y1:target_y2, target_x1:target_x2, :]
-            mask_region = mask[target_y1:target_y2, target_x1:target_x2].unsqueeze(-1)
-            overlay_cropped = resized_overlay[crop_y1:crop_y2, crop_x1:crop_x2, :]
+                crop_x1 = max(0, -paste_x1)
+                crop_y1 = max(0, -paste_y1)
+                crop_x2 = crop_x1 + (target_x2 - target_x1)
+                crop_y2 = crop_y1 + (target_y2 - target_y1)
 
-            # --- Логика смешивания с альфа-каналом ---
-            overlay_rgb = overlay_cropped[..., :3]
-            if overlay_has_alpha:
-                overlay_alpha = overlay_cropped[..., 3:4]
-            else:
-                overlay_alpha = torch.ones_like(overlay_rgb[..., :1])
-            
-            # Фикс ошибки: работаем только с RGB каналами основного изображения при смешивании
-            base_rgb_region = base_region[..., :3]
+                if target_x1 >= target_x2 or target_y1 >= target_y2: continue
+                
+                # Вырезаем нужные части
+                base_region = output_image[i, target_y1:target_y2, target_x1:target_x2, :]
+                mask_region = component_mask[target_y1:target_y2, target_x1:target_x2].unsqueeze(-1)
+                overlay_cropped = resized_overlay[crop_y1:crop_y2, crop_x1:crop_x2, :]
 
-            final_alpha_mask = overlay_alpha * mask_region * opacity
-            
-            blended_rgb = base_rgb_region * (1.0 - final_alpha_mask) + overlay_rgb * final_alpha_mask
+                # --- Логика смешивания с альфа-каналом ---
+                overlay_rgb = overlay_cropped[..., :3]
+                overlay_alpha = overlay_cropped[..., 3:4] if overlay_has_alpha else torch.ones_like(overlay_rgb[..., :1])
+                
+                base_rgb_region = base_region[..., :3]
+                final_alpha_mask = overlay_alpha * mask_region * opacity
+                
+                blended_rgb = base_rgb_region * (1.0 - final_alpha_mask) + overlay_rgb * final_alpha_mask
 
-            # Если у базового изображения есть альфа-канал, сохраним его
-            if base_has_alpha:
-                 output_image[i, target_y1:target_y2, target_x1:target_x2, :3] = blended_rgb
-                 # Можно добавить логику для смешивания альфа-каналов, если нужно
-            else:
-                 output_image[i, target_y1:target_y2, target_x1:target_x2, :] = blended_rgb
+                # Обновляем итоговое изображение
+                if base_has_alpha:
+                     output_image[i, target_y1:target_y2, target_x1:target_x2, :3] = blended_rgb
+                else:
+                     output_image[i, target_y1:target_y2, target_x1:target_x2, :] = blended_rgb
             
         return (output_image,)
