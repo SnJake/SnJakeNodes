@@ -149,9 +149,8 @@ class BlurImageByMasks:
 
 class OverlayImageByMasks:
     """
-    Нода для наложения изображения по маске с автоматическим и ручным масштабированием, 
-    прозрачностью и поддержкой альфа-канала. 
-    Теперь обрабатывает каждую отдельную область маски независимо.
+    Нода для наложения изображения по маске с сохранением пропорций, масштабированием 
+    и обработкой нескольких областей.
     """
     CATEGORY = "😎 SnJake/Masks"
     FUNCTION = "overlay"
@@ -165,6 +164,7 @@ class OverlayImageByMasks:
                 "base_image": ("IMAGE",),
                 "overlay_image": ("IMAGE",),
                 "masks": ("MASK",),
+                "keep_aspect_ratio": ("BOOLEAN", {"default": True, "label_on": "Сохранять пропорции", "label_off": "Растягивать по маске"}),
                 "scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.05}),
                 "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
@@ -179,7 +179,7 @@ class OverlayImageByMasks:
         cmin, cmax = torch.where(cols)[0][[0, -1]]
         return rmin.item(), rmax.item(), cmin.item(), cmax.item()
 
-    def overlay(self, base_image, overlay_image, masks, scale, opacity):
+    def overlay(self, base_image, overlay_image, masks, keep_aspect_ratio, scale, opacity):
         if overlay_image.shape[0] != 1:
             raise ValueError("Изображение для наложения должно быть одним (размер батча 1).")
         
@@ -197,6 +197,8 @@ class OverlayImageByMasks:
 
         overlay_bchw = overlay_image.permute(0, 3, 1, 2)
         overlay_has_alpha = overlay_bchw.shape[1] == 4
+        # <<< НОВАЯ ЛОГИКА: Получаем оригинальные размеры оверлея
+        _, _, overlay_h, overlay_w = overlay_bchw.shape
         img_h, img_w = base_image.shape[1], base_image.shape[2]
 
         for i in range(base_image.shape[0]):
@@ -204,17 +206,13 @@ class OverlayImageByMasks:
             if not torch.any(mask):
                 continue
             
-            # --- НОВАЯ ЛОГИКА ---
-            # Находим все отдельные (несвязанные) области в маске
             mask_np = mask.cpu().numpy().astype(np.uint8)
             labeled_array, num_features = label(mask_np)
             
             if num_features == 0:
                 continue
 
-            # Итерируемся по каждой найденной области
             for j in range(1, num_features + 1):
-                # Создаем временную маску только для текущей области
                 component_mask_np = (labeled_array == j)
                 component_mask = torch.from_numpy(component_mask_np).to(device=mask.device, dtype=mask.dtype)
                 
@@ -225,11 +223,30 @@ class OverlayImageByMasks:
                 y1, y2, x1, x2 = bbox
                 bbox_h, bbox_w = y2 - y1 + 1, x2 - x1 + 1
                 
-                # Применяем дополнительный масштаб
-                scaled_h, scaled_w = int(bbox_h * scale), int(bbox_w * scale)
+                scaled_h, scaled_w = 0, 0
+
+                # <<< НОВАЯ ЛОГИКА: Выбор способа масштабирования
+                if keep_aspect_ratio:
+                    # Сохраняем пропорции: вписываем оверлей в bbox
+                    if overlay_w == 0 or overlay_h == 0: continue
+                    
+                    # Вычисляем масштаб, чтобы вписать изображение в bbox
+                    ratio_w = bbox_w / overlay_w
+                    ratio_h = bbox_h / overlay_h
+                    fit_scale = min(ratio_w, ratio_h)
+                    
+                    # Применяем к этому результату пользовательский масштаб
+                    total_scale = fit_scale * scale
+                    scaled_w = int(overlay_w * total_scale)
+                    scaled_h = int(overlay_h * total_scale)
+                else:
+                    # Старое поведение: растягиваем по bbox
+                    scaled_w = int(bbox_w * scale)
+                    scaled_h = int(bbox_h * scale)
+
                 if scaled_h == 0 or scaled_w == 0: continue
 
-                # Масштабируем оверлей
+                # Масштабируем оверлей до вычисленных размеров
                 resized_overlay_bchw = TF.resize(overlay_bchw, size=[scaled_h, scaled_w], antialias=True)
                 resized_overlay = resized_overlay_bchw.permute(0, 2, 3, 1).squeeze(0)
 
@@ -250,7 +267,6 @@ class OverlayImageByMasks:
 
                 if target_x1 >= target_x2 or target_y1 >= target_y2: continue
                 
-                # Вырезаем нужные части
                 base_region = output_image[i, target_y1:target_y2, target_x1:target_x2, :]
                 mask_region = component_mask[target_y1:target_y2, target_x1:target_x2].unsqueeze(-1)
                 overlay_cropped = resized_overlay[crop_y1:crop_y2, crop_x1:crop_x2, :]
@@ -264,7 +280,6 @@ class OverlayImageByMasks:
                 
                 blended_rgb = base_rgb_region * (1.0 - final_alpha_mask) + overlay_rgb * final_alpha_mask
 
-                # Обновляем итоговое изображение
                 if base_has_alpha:
                      output_image[i, target_y1:target_y2, target_x1:target_x2, :3] = blended_rgb
                 else:
