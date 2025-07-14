@@ -40,7 +40,7 @@ class LoraMetadataParser:
         """
         Основная функция узла.
         Читает метаданные LoRA, извлекает и форматирует частоту тегов.
-        Теги со специальными символами (например, \arknights) будут экранированы.
+        Теги со специальными символами (например, \arknights\) будут корректно экранированы.
         """
         # Получаем полный путь к файлу LoRA
         lora_path = folder_paths.get_full_path("loras", lora_name)
@@ -81,20 +81,24 @@ class LoraMetadataParser:
         output_lines = []
         # Сортируем теги по количеству (по убыванию)
         for tag, count in all_tags.most_common():
-            # Сначала проводим базовую очистку, как и раньше
+            # Базовая очистка
             clean_tag = tag.replace('(', '').replace(')', '').strip()
     
-            # ----- НОВАЯ ЛОГИКА ДЛЯ ЭКРАНИРОВАНИЯ -----
-            # Проверяем, есть ли в теге обратный слэш
+            # ----- ИСПРАВЛЕННАЯ ЛОГИКА ЭКРАНИРОВАНИЯ -----
             if '\\' in clean_tag:
                 words = clean_tag.split()
-                # Обрабатываем каждое слово: если оно начинается с '\', оборачиваем его
-                processed_words = [f'\\({word[1:]}\\)' if word.startswith('\\') else word for word in words]
+                processed_words = []
+                for word in words:
+                    if word.startswith('\\'):
+                        # Удаляем слэши с обоих концов слова и оборачиваем в скобки
+                        core_word = word.strip('\\')
+                        processed_words.append(f'\\({core_word}\\)')
+                    else:
+                        processed_words.append(word)
                 final_tag = ' '.join(processed_words)
             else:
-                # Если слэша нет, оставляем тег как есть
                 final_tag = clean_tag
-            # -----------------------------------------
+            # ---------------------------------------------
             
             output_lines.append(f"{final_tag}: {count}")
         
