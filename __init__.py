@@ -61,7 +61,7 @@ from .ultralytics import YoloModelLoader, YoloInference
 from .mask_utils import ResizeAllMasks, BlurImageByMasks, OverlayImageByMasks
 
 
-
+from .lora_metadata_parser import LoraMetadataParser
 
 
 NODE_CLASS_MAPPINGS = {
@@ -129,6 +129,8 @@ NODE_CLASS_MAPPINGS = {
     "ResizeAllMasks": ResizeAllMasks,
     "BlurImageByMasks": BlurImageByMasks,
     "OverlayImageByMasks": OverlayImageByMasks,
+
+    "LoraMetadataParser": LoraMetadataParser,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -195,6 +197,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ResizeAllMasks": "😎 Masks Resize",
     "BlurImageByMasks": "😎 Image Blur By Mask",
     "OverlayImageByMasks": "😎 Image Overlay By Mask",
+
+    "LoraMetadataParser": "😎 LoRA Metadata Parser",
 
 }
 
