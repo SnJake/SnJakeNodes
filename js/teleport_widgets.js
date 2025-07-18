@@ -1,3 +1,5 @@
+// /ComfyUI/custom_nodes/snjake_nodes/js/snjake_teleport_ui.js
+
 import { app } from "../../../scripts/app.js";
 
 /**
@@ -13,66 +15,20 @@ function findAvailableConstants() {
     return uniqueConstants.length > 0 ? uniqueConstants : ["(канал не найден)"];
 }
 
-/**
- * Обновляет все Get-узлы в графе, чтобы их выпадающие списки были актуальны.
- */
-function updateAllGetNodes() {
-    for (const node of app.graph._nodes) {
-        if (node.type === "SnJake_TeleportGet") {
-            node.widgets[0].options.values = findAvailableConstants();
-            node.onConstantChange(); // Обновляем состояние узла
-        }
-    }
-}
-
 app.registerExtension({
-    name: "SnJake.TeleportNodes.Virtual.Final",
+    name: "SnJake.TeleportNodes.Rewire",
     registerCustomNodes() {
-        // --- Класс для узла-ОТПРАВИТЕЛЯ (Set) ---
-        class SnJakeTeleportSetNode extends LiteGraph.LGraphNode {
-            constructor(title) {
-                super(title);
-                this.isVirtualNode = true; // Указывает, что узел существует только на фронте
-                this.addInput("signal", "*");
-                this.addOutput("signal_passthrough", "*");
-                this.addWidget("text", "constant", "default_pipe", () => updateAllGetNodes());
-            }
-
-            // Когда к нашему входу что-то подключают, обновляем все Get-узлы
-            onConnectionsChange(type, index, connected, link_info) {
-                if (type === LiteGraph.INPUT && connected) {
-                    updateAllGetNodes();
-                }
-            }
-        }
-
+        
         // --- Класс для узла-ПОЛУЧАТЕЛЯ (Get) ---
         class SnJakeTeleportGetNode extends LiteGraph.LGraphNode {
-            constructor(title) {
+            constructor(title = "Teleport Get (Receiver)") {
                 super(title);
-                this.isVirtualNode = true;
+                this.properties = {};
                 this.addOutput("signal", "*");
                 this.addWidget("combo", "constant", "default_pipe", this.onConstantChange.bind(this), {
-                    values: findAvailableConstants
+                    values: findAvailableConstants,
+                    serialize: false // Не сохранять этот виджет в JSON графа
                 });
-            }
-
-            // Когда меняется выбранный канал, обновляем тип выхода
-            onConstantChange() {
-                const setter = this.findSetter();
-                const output = this.outputs[0];
-                if (setter && setter.inputs[0].type !== "*") {
-                    const newType = setter.inputs[0].type;
-                    if (output.type !== newType) {
-                        output.type = newType;
-                        output.name = newType;
-                    }
-                } else {
-                    if (output.type !== "*") {
-                        output.type = "*";
-                        output.name = "signal";
-                    }
-                }
             }
 
             // Находит соответствующий Set-узел
@@ -83,24 +39,66 @@ app.registerExtension({
                 );
             }
 
-            // ГЛАВНЫЙ МЕХАНИЗМ: перехватываем запрос на данные
-            getInputLink(slot) {
+            // Когда меняется выбранный канал
+            onConstantChange(value, widget, node) {
                 const setter = this.findSetter();
-                // Если найден Set-узел и к его первому входу что-то подключено...
-                if (setter && setter.inputs[0]?.link != null) {
-                    // ...возвращаем информацию о соединении ИСТОЧНИКА Set-узла.
-                    return app.graph.links[setter.inputs[0].link];
+                const output = this.outputs[0];
+                const newType = (setter && setter.inputs[0].type !== "*") ? setter.inputs[0].type : "*";
+
+                if (output.type !== newType) {
+                    // Если тип выхода изменился, отсоединяем все существующие провода
+                    if (output.links?.length) {
+                        for (const linkId of [...output.links]) {
+                            app.graph.removeLink(linkId);
+                        }
+                    }
+                    output.type = newType;
+                    output.name = newType === "*" ? "signal" : newType;
                 }
-                return null;
+            }
+            
+            // ГЛАВНЫЙ МЕХАНИЗМ: ПЕРЕСТРОЙКА ГРАФА
+            onConnectOutput(outputIndex, inputType, inputSlot, targetNode, targetSlotIndex) {
+                const setter = this.findSetter();
+                // Находим узел-источник, подключенный к нашему Set-узлу
+                if (setter && setter.inputs[0]?.link != null) {
+                    const sourceLink = app.graph.links[setter.inputs[0].link];
+                    if (sourceLink) {
+                        const sourceNode = app.graph.getNodeById(sourceLink.origin_id);
+                        // Программно создаем ПРЯМОЕ соединение от источника к цели
+                        sourceNode.connect(sourceLink.origin_slot, targetNode, targetSlotIndex);
+                        // Запрещаем создание "неправильного" соединения от нашего Get-узла
+                        return false; 
+                    }
+                }
+                // Если Set-узел не найден, ничего не делаем
+                return true; 
             }
         }
 
-        // Регистрируем наши JS-классы, связывая их с именами из Python
+        // --- Класс для узла-ОТПРАВИТЕЛЯ (Set) ---
+        class SnJakeTeleportSetNode extends LiteGraph.LGraphNode {
+            constructor(title = "Teleport Set (Sender)") {
+                super(title);
+                this.properties = {};
+                this.addInput("signal", "*");
+                this.addOutput("signal_passthrough", "*");
+                this.addWidget("text", "constant", "default_pipe", () => {
+                    // При изменении имени канала обновляем списки во всех Get-узлах
+                    for (const node of app.graph._nodes) {
+                        if (node.type === "SnJake_TeleportGet") {
+                            node.widgets[0].options.values = findAvailableConstants();
+                        }
+                    }
+                });
+            }
+        }
+
         LiteGraph.registerNodeType("SnJake_TeleportSet", SnJakeTeleportSetNode);
         LiteGraph.registerNodeType("SnJake_TeleportGet", SnJakeTeleportGetNode);
     },
     
-    // Окрашивание (остается для эстетики)
+    // Окрашивание
     async nodeCreated(node) {
         if (node.constructor.name === "SnJakeTeleportSetNode" || node.constructor.name === "SnJakeTeleportGetNode") {
             node.color = "#2e2e36";
