@@ -1,46 +1,34 @@
 class SnJake_TeleportSet:
     """
-    ВИРТУАЛЬНЫЙ УЗЕЛ. Вся логика находится в JS.
-    Этот узел просто объявляет входы/выходы для UI.
+    Python-заглушка для виртуального узла Teleport Set.
+    Вся логика находится в /js/snjake_teleport_ui.js
     """
     CATEGORY = "😎 SnJake/Utils"
     FUNCTION = "do_nothing"
-    RETURN_TYPES = ("*",)
-    RETURN_NAMES = ("signal_passthrough",)
+    INPUT_IS_LIST = True
+    OUTPUT_IS_LIST = (True,)
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "signal": ("*",),
-                "constant": ("STRING", {"default": "default_pipe"}),
-            }
-        }
+        return {"required": {}}
 
-    def do_nothing(self, signal, **kwargs):
-        # Возвращаем сигнал для сквозного соединения
-        return (signal,)
+    def do_nothing(self, **kwargs):
+        return (list(kwargs.values()),)
+
 
 class SnJake_TeleportGet:
     """
-    ВИРТУАЛЬНЫЙ УЗЕЛ. Вся логика находится в JS.
-    Этот узел объявляет входы/выходы для UI.
+    Python-заглушка для виртуального узла Teleport Get.
+    Вся логика находится в /js/snjake_teleport_ui.js
     """
     CATEGORY = "😎 SnJake/Utils"
     FUNCTION = "do_nothing"
-    RETURN_TYPES = ("*",)
-    RETURN_NAMES = ("signal",)
+    INPUT_IS_LIST = True
+    OUTPUT_IS_LIST = (True,)
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                # Важно: объявляем как STRING, чтобы избежать валидации на стороне бэкенда.
-                # JS превратит это в выпадающий список.
-                "constant": ("STRING", {"default": "default_pipe"}),
-            }
-        }
+        return {"required": {}}
 
     def do_nothing(self, **kwargs):
-        # Этот узел ничего не делает. Данные будут получены "виртуально".
-        return (None,)
+        return ([],)
