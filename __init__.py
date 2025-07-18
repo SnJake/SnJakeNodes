@@ -206,8 +206,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
     "LoraMetadataParser": "😎 LoRA Metadata Parser",
 
-    "SnJake_TeleportSet": "Teleport Set (Sender) 😎",
-    "SnJake_TeleportGet": "Teleport Get (Receiver) 😎",
+    "SnJake_TeleportSet": "😎 Teleport Set (Sender)",
+    "SnJake_TeleportGet": "😎 Teleport Get (Receiver)",
 
 }
 
