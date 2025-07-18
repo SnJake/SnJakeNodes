@@ -63,6 +63,8 @@ from .mask_utils import ResizeAllMasks, BlurImageByMasks, OverlayImageByMasks
 
 from .lora_metadata_parser import LoraMetadataParser
 
+from .teleport_nodes import SnJake_TeleportSet, SnJake_TeleportGet
+
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -131,6 +133,10 @@ NODE_CLASS_MAPPINGS = {
     "OverlayImageByMasks": OverlayImageByMasks,
 
     "LoraMetadataParser": LoraMetadataParser,
+
+
+    "SnJake_TeleportSet": SnJake_TeleportSet,
+    "SnJake_TeleportGet": SnJake_TeleportGet,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -199,6 +205,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "OverlayImageByMasks": "😎 Image Overlay By Mask",
 
     "LoraMetadataParser": "😎 LoRA Metadata Parser",
+
+    "SnJake_TeleportSet": "Teleport Set (Sender) 😎",
+    "SnJake_TeleportGet": "Teleport Get (Receiver) 😎",
 
 }
 
