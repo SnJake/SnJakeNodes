@@ -1,80 +1,73 @@
-// /ComfyUI/custom_nodes/snjake_teleport_nodes/js/teleport_widgets.js
-
 import { app } from "../../../scripts/app.js";
-import { api } from "../../../scripts/api.js";
 
-// Функция для обновления выпадающего списка в Get-нодах
-async function updateGetNodeLists() {
-    try {
-        const response = await api.fetchApi("/snjake/get_teleport_constants");
-        const constants = await response.json();
-        
-        const getNodes = app.graph._nodes.filter(node => node.type === "SnJake_TeleportGet");
-        
-        getNodes.forEach(node => {
-            const widget = node.widgets.find(w => w.name === "constant");
-            if (widget) {
-                const currentValue = widget.value;
-                widget.options.values = constants;
-                if (constants.includes(currentValue)) {
-                    widget.value = currentValue;
-                } else if (constants.length > 0) {
-                    // Если текущего значения больше нет, выбираем первое в списке
-                    widget.value = constants[0];
-                }
-            }
-        });
-    } catch (error) {
-        console.error("Failed to update Teleport Get lists:", error);
-    }
-}
-
+/**
+ * Возвращает отсортированный массив уникальных имен каналов из всех Set-нод на графе.
+ * @returns {string[]}
+ */
+const getTeleportConstants = () => {
+    const setNodes = app.graph._nodes.filter(n => n.type === "SnJake_TeleportSet");
+    // Используем Set для автоматического удаления дубликатов
+    const constants = new Set();
+    setNodes.forEach(node => {
+        const widget = node.widgets.find(w => w.name === "constant");
+        if (widget && widget.value.trim()) {
+            constants.add(widget.value.trim());
+        }
+    });
+    return Array.from(constants).sort();
+};
 
 app.registerExtension({
-    name: "SnJake.TeleportWidgets",
-    async setup() {
-        updateGetNodeLists();
-    },
+    name: "SnJake.Teleport",
     
-    nodeCreated(node) {
-        // --- Логика для ноды Set ---
-        if (node.type === "SnJake_TeleportSet") {
-            // -- ДОБАВЛЕН КОД ДЛЯ ЦВЕТА --
-            node.color = "#2e2e36";
-            node.bgcolor = "#41414a";
-            // -----------------------------
-
-            const widget = node.widgets.find(w => w.name === "constant");
-            if (widget) {
-                const originalCallback = widget.callback;
-                widget.callback = async (value) => {
-                    if (originalCallback) {
-                        originalCallback.call(widget, value);
-                    }
-                    if (value && value.trim()) {
-                        try {
-                            await api.fetchApi("/snjake/add_teleport_constant", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ constant: value.trim() }),
-                            });
-                            await updateGetNodeLists();
-                        } catch (error) {
-                            console.error("Failed to add Teleport constant:", error);
+    // Переопределяем поведение LGraphNode, чтобы кастомизировать наши ноды
+    registerCustomNodes() {
+        
+        // --- Кастомизация ноды SET ---
+        const TeleportSetNode = LiteGraph.getNodeType("SnJake_TeleportSet");
+        if (TeleportSetNode) {
+            TeleportSetNode.prototype.onNodeCreated = function() {
+                // Устанавливаем цвет при создании ноды
+                this.color = "#2e2e36";
+                this.bgcolor = "#41414a";
+                
+                // Находим виджет и добавляем ему callback, чтобы обновлять Get-ноды
+                const constantWidget = this.widgets.find(w => w.name === "constant");
+                if (constantWidget) {
+                    // Сохраняем оригинальный callback, если он есть
+                    const originalCallback = constantWidget.callback;
+                    constantWidget.callback = (value) => {
+                        if (originalCallback) {
+                            originalCallback.call(this, value);
                         }
-                    }
-                };
-            }
+                        // Эта строчка не нужна, так как Get-нода сама обновит свой список при клике
+                        // Но если бы нужно было принудительно обновить, мы бы вызывали функцию здесь
+                    };
+                }
+            };
         }
 
-        // --- Логика для ноды Get ---
-        if (node.type === "SnJake_TeleportGet") {
-            // -- ДОБАВЛЕН КОД ДЛЯ ЦВЕТА --
-            node.color = "#2e2e36";
-            node.bgcolor = "#41414a";
-            // -----------------------------
+        // --- Кастомизация ноды GET ---
+        const TeleportGetNode = LiteGraph.getNodeType("SnJake_TeleportGet");
+        if (TeleportGetNode) {
+            TeleportGetNode.prototype.onNodeCreated = function() {
+                // Устанавливаем цвет при создании ноды
+                this.color = "#2e2e36";
+                this.bgcolor = "#41414a";
+            };
 
-            setTimeout(updateGetNodeLists, 100);
+            // Самая важная часть: делаем виджет динамическим
+            TeleportGetNode.prototype.onConfigure = function(info) {
+                // Эта функция вызывается при создании и конфигурации ноды.
+                // Мы находим наш виджет и заменяем его значения функцией.
+                const constantWidget = this.widgets.find(w => w.name === "constant");
+                if (constantWidget) {
+                    // Теперь каждый раз, когда пользователь нажимает на выпадающий список,
+                    // будет вызываться функция getTeleportConstants,
+                    // которая вернет АКТУАЛЬНЫЙ список каналов.
+                    constantWidget.options.values = getTeleportConstants;
+                }
+            };
         }
     }
 });
