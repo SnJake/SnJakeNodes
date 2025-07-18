@@ -62,11 +62,10 @@ class SnJake_TeleportGet:
 
     @classmethod
     def INPUT_TYPES(cls):
-        # JS на стороне клиента будет динамически обновлять этот список.
-        # В Python мы просто предоставляем базовую структуру.
         return {
             "required": {
-                "constant": (["default_pipe"],),
+                # Говорим бэкенду, что это просто строка. Валидация списка отключается.
+                "constant": ("STRING", {"default": "default_pipe"}),
             }
         }
 
