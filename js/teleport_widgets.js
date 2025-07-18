@@ -1,97 +1,108 @@
-// /ComfyUI/custom_nodes/snjake_nodes/js/snjake_teleport_ui.js
-
 import { app } from "../../../scripts/app.js";
 
+/**
+ * Находит все уникальные имена каналов, определенные в Set-узлах.
+ * @returns {string[]} Отсортированный массив имен каналов.
+ */
 function findAvailableConstants() {
     const constants = app.graph._nodes
         .filter(n => n.type === "SnJake_TeleportSet")
         .map(n => n.widgets?.find(w => w.name === "constant")?.value)
         .filter(Boolean);
     const uniqueConstants = [...new Set(constants)].sort();
-    return uniqueConstants.length > 0 ? uniqueConstants : ["(no channels found)"];
+    return uniqueConstants.length > 0 ? uniqueConstants : ["(канал не найден)"];
 }
 
+/**
+ * Обновляет все Get-узлы в графе, чтобы их выпадающие списки были актуальны.
+ */
 function updateAllGetNodes() {
     for (const node of app.graph._nodes) {
         if (node.type === "SnJake_TeleportGet") {
-            const widget = node.widgets.find(w => w.name === "constant");
-            if (widget) {
-                // Обновляем список и сообщаем UI, что виджет изменился
-                widget.options.values = findAvailableConstants();
-                node.setDirtyCanvas(true, true);
-            }
+            node.widgets[0].options.values = findAvailableConstants();
+            node.onConstantChange(); // Обновляем состояние узла
         }
     }
 }
 
 app.registerExtension({
-    name: "SnJake.TeleportNodes.Final",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
+    name: "SnJake.TeleportNodes.Virtual.Final",
+    registerCustomNodes() {
+        // --- Класс для узла-ОТПРАВИТЕЛЯ (Set) ---
+        class SnJakeTeleportSetNode extends LiteGraph.LGraphNode {
+            constructor(title) {
+                super(title);
+                this.isVirtualNode = true; // Указывает, что узел существует только на фронте
+                this.addInput("signal", "*");
+                this.addOutput("signal_passthrough", "*");
+                this.addWidget("text", "constant", "default_pipe", () => updateAllGetNodes());
+            }
 
-        // --- Логика для узла GET (Receiver) ---
-        if (nodeData.name === "SnJake_TeleportGet") {
-            // ФУНКЦИЯ-ПЕРЕХВАТЧИК: Самая важная часть.
-            // Когда движок запрашивает данные с этого узла, мы подменяем источник.
-            nodeType.prototype.getInputLink = function (slot) {
+            // Когда к нашему входу что-то подключают, обновляем все Get-узлы
+            onConnectionsChange(type, index, connected, link_info) {
+                if (type === LiteGraph.INPUT && connected) {
+                    updateAllGetNodes();
+                }
+            }
+        }
+
+        // --- Класс для узла-ПОЛУЧАТЕЛЯ (Get) ---
+        class SnJakeTeleportGetNode extends LiteGraph.LGraphNode {
+            constructor(title) {
+                super(title);
+                this.isVirtualNode = true;
+                this.addOutput("signal", "*");
+                this.addWidget("combo", "constant", "default_pipe", this.onConstantChange.bind(this), {
+                    values: findAvailableConstants
+                });
+            }
+
+            // Когда меняется выбранный канал, обновляем тип выхода
+            onConstantChange() {
+                const setter = this.findSetter();
+                const output = this.outputs[0];
+                if (setter && setter.inputs[0].type !== "*") {
+                    const newType = setter.inputs[0].type;
+                    if (output.type !== newType) {
+                        output.type = newType;
+                        output.name = newType;
+                    }
+                } else {
+                    if (output.type !== "*") {
+                        output.type = "*";
+                        output.name = "signal";
+                    }
+                }
+            }
+
+            // Находит соответствующий Set-узел
+            findSetter() {
                 const constantName = this.widgets[0].value;
-                const setter = app.graph._nodes.find(
+                return app.graph._nodes.find(
                     (otherNode) => otherNode.type === "SnJake_TeleportSet" && otherNode.widgets[0].value === constantName
                 );
+            }
 
-                if (setter && setter.inputs[0] && setter.inputs[0].link) {
-                    const linkId = setter.inputs[0].link;
-                    return app.graph.links[linkId]; // Возвращаем соединение от ИСТОЧНИКА Set-узла
+            // ГЛАВНЫЙ МЕХАНИЗМ: перехватываем запрос на данные
+            getInputLink(slot) {
+                const setter = this.findSetter();
+                // Если найден Set-узел и к его первому входу что-то подключено...
+                if (setter && setter.inputs[0]?.link != null) {
+                    // ...возвращаем информацию о соединении ИСТОЧНИКА Set-узла.
+                    return app.graph.links[setter.inputs[0].link];
                 }
                 return null;
-            };
-
-            const onNodeCreated = nodeType.prototype.onNodeCreated;
-            nodeType.prototype.onNodeCreated = function () {
-                onNodeCreated?.apply(this, arguments);
-
-                const widget = this.widgets.find(w => w.name === "constant");
-                if (widget) {
-                    // Превращаем текстовый виджет в выпадающий список
-                    widget.type = "combo";
-                    widget.options = widget.options || {};
-                    widget.options.values = findAvailableConstants();
-                    
-                    // Когда меняется значение, обновляем тип выходного сокета
-                    const originalCallback = widget.callback;
-                    widget.callback = (value) => {
-                        const setter = this.graph._nodes.find(n => n.type === 'SnJake_TeleportSet' && n.widgets[0].value === value);
-                        if (setter && setter.inputs[0].type) {
-                            this.outputs[0].type = setter.inputs[0].type;
-                            this.outputs[0].name = setter.inputs[0].type;
-                        }
-                        originalCallback?.(value);
-                    };
-                }
-            };
+            }
         }
 
-        // --- Логика для узла SET (Sender) ---
-        if (nodeData.name === "SnJake_TeleportSet") {
-            const onNodeCreated = nodeType.prototype.onNodeCreated;
-            nodeType.prototype.onNodeCreated = function () {
-                onNodeCreated?.apply(this, arguments);
-                
-                const widget = this.widgets.find(w => w.name === "constant");
-                if (widget) {
-                    const originalCallback = widget.callback;
-                    // При изменении имени канала, обновляем все Get-узлы
-                    widget.callback = (value) => {
-                        originalCallback?.(value);
-                        updateAllGetNodes();
-                    };
-                }
-            };
-        }
+        // Регистрируем наши JS-классы, связывая их с именами из Python
+        LiteGraph.registerNodeType("SnJake_TeleportSet", SnJakeTeleportSetNode);
+        LiteGraph.registerNodeType("SnJake_TeleportGet", SnJakeTeleportGetNode);
     },
-
-    // Окрашивание узлов
+    
+    // Окрашивание (остается для эстетики)
     async nodeCreated(node) {
-        if (node.comfyClass === "SnJake_TeleportSet" || node.comfyClass === "SnJake_TeleportGet") {
+        if (node.constructor.name === "SnJakeTeleportSetNode" || node.constructor.name === "SnJakeTeleportGetNode") {
             node.color = "#2e2e36";
             node.bgcolor = "#41414a";
         }
