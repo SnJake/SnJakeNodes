@@ -65,8 +65,6 @@ from .lora_metadata_parser import LoraMetadataParser
 
 from .teleport_nodes import SnJake_TeleportSet, SnJake_TeleportGet
 
-from .advanced_vae_nodes import VAEEncodeWithPrecision, VAEDecodeWithPrecision
-
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
     "ScanImageFolder": ScanImageFolder,
@@ -139,8 +137,6 @@ NODE_CLASS_MAPPINGS = {
     "SnJake_TeleportSet": SnJake_TeleportSet,
     "SnJake_TeleportGet": SnJake_TeleportGet,
 
-    "VAEDecodeWithPrecision": VAEDecodeWithPrecision,
-    "VAEEncodeWithPrecision": VAEEncodeWithPrecision,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -213,8 +209,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJake_TeleportSet": "😎 Teleport Set (Sender)",
     "SnJake_TeleportGet": "😎 Teleport Get (Receiver)",
     
-    "VAEEncodeWithPrecision": "😎 VAEEncodeWithPrecision",
-    "VAEDecodeWithPrecision": "😎 VAEDecodeWithPrecision",
 }
 
 
