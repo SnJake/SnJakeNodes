@@ -67,7 +67,7 @@ from .teleport_nodes import SnJake_TeleportSet, SnJake_TeleportGet
 
 from .switch_nodes import SnJakeAnySwitch, SnJakeImageSwitch, SnJakeMaskSwitch, SnJakeStringSwitch, SnJakeLatentSwitch, SnJakeConditioningSwitch
 
-from .random_node import SnJakeRandomNumberGenerator
+from .random_node import SnJakeNumberNode
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -148,7 +148,7 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeLatentSwitch": SnJakeLatentSwitch,
     "SnJakeConditioningSwitch": SnJakeConditioningSwitch,
 
-    "SnJakeRandomNumberGenerator": SnJakeRandomNumberGenerator,
+    "SnJakeNumberNode": SnJakeNumberNode,
 
 }
 
@@ -229,7 +229,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeLatentSwitch": "😎 Switch (Latent)",
     "SnJakeConditioningSwitch": "😎 Switch (Conditioning)",
 
-    "SnJakeRandomNumberGenerator": "😎 Random Number Generator",
+    "SnJakeNumberNode": "😎 Number Node",
     
 }
 
@@ -240,5 +240,6 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
