@@ -65,6 +65,8 @@ from .lora_metadata_parser import LoraMetadataParser
 
 from .teleport_nodes import SnJake_TeleportSet, SnJake_TeleportGet
 
+from .switch_nodes import SnJakeAnySwitch, SnJakeImageSwitch, SnJakeMaskSwitch, SnJakeStringSwitch, SnJakeLatentSwitch, SnJakeConditioningSwitch
+
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
     "ScanImageFolder": ScanImageFolder,
@@ -137,6 +139,13 @@ NODE_CLASS_MAPPINGS = {
     "SnJake_TeleportSet": SnJake_TeleportSet,
     "SnJake_TeleportGet": SnJake_TeleportGet,
 
+    "SnJakeAnySwitch": SnJakeAnySwitch,
+    "SnJakeImageSwitch": SnJakeImageSwitch,
+    "SnJakeMaskSwitch": SnJakeMaskSwitch,
+    "SnJakeStringSwitch": SnJakeStringSwitch,
+    "SnJakeLatentSwitch": SnJakeLatentSwitch,
+    "SnJakeConditioningSwitch": SnJakeConditioningSwitch,
+
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -208,6 +217,13 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
     "SnJake_TeleportSet": "😎 Teleport Set (Sender)",
     "SnJake_TeleportGet": "😎 Teleport Get (Receiver)",
+
+    "SnJakeAnySwitch": "😎 Switch (Any)",
+    "SnJakeImageSwitch": "😎 Switch (Image)",
+    "SnJakeMaskSwitch": "😎 Switch (Mask)",
+    "SnJakeStringSwitch": "😎 Switch (String)",
+    "SnJakeLatentSwitch": "😎 Switch (Latent)",
+    "SnJakeConditioningSwitch": "😎 Switch (Conditioning)",
     
 }
 
@@ -218,3 +234,4 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
