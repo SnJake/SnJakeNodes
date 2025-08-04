@@ -1,9 +1,9 @@
 import { app } from "../../../scripts/app.js";
 
 app.registerExtension({
-    name: "SnJake.SnJakeRandomNumberGenerator",
+    name: "SnJake.SnJakeNumberNode",
     async nodeCreated(node) {
-        if (node.comfyClass === "SnJakeRandomNumberGenerator") {
+        if (node.comfyClass === "SnJakeNumberNode") {
             node.color = "#2e2e36";
             node.bgcolor = "#41414a";
         }
