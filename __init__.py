@@ -69,6 +69,8 @@ from .switch_nodes import SnJakeAnySwitch, SnJakeImageSwitch, SnJakeMaskSwitch, 
 
 from .random_node import SnJakeNumberNode
 
+from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
+
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
     "ScanImageFolder": ScanImageFolder,
@@ -150,6 +152,9 @@ NODE_CLASS_MAPPINGS = {
 
     "SnJakeNumberNode": SnJakeNumberNode,
 
+    "SnJakeTextConcatenate": SnJakeTextConcatenate,
+    "SnJakeMultilineText": SnJakeMultilineText,
+
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -230,6 +235,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeConditioningSwitch": "😎 Switch (Conditioning)",
 
     "SnJakeNumberNode": "😎 Number Node",
+
+    "SnJakeTextConcatenate": "😎 Text Concatenate",
+    "SnJakeMultilineText": "😎 Multiline Text",
     
 }
 
@@ -240,6 +248,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
 
