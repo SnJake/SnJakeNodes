@@ -19,11 +19,11 @@ class SnJakeTextConcatenate:
             "required": {
                 "text_1": ("STRING", {"default": "", "multiline": True}),
                 "text_2": ("STRING", {"default": "", "multiline": True}),
+                "text_3": ("STRING", {"default": "", "multiline": True}),
+                "text_4": ("STRING", {"default": "", "multiline": True}),
                 "delimiter": ("STRING", {"default": ", "}), # Разделитель по умолчанию - запятая с пробелом
             },
             "optional": {
-                "text_3": ("STRING", {"default": "", "multiline": True}),
-                "text_4": ("STRING", {"default": "", "multiline": True}),
             }
         }
 
