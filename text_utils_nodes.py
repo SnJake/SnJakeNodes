@@ -27,16 +27,19 @@ class SnJakeTextConcatenate:
             }
         }
 
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        """
+        Этот метод заставляет ноду выполняться каждый раз.
+        Возвращая float('NaN'), мы гарантируем, что ComfyUI никогда не посчитает
+        результат этой ноды кэшированным.
+        """
+        return float("NaN")
+
     def concatenate(self, text_1, text_2, delimiter, text_3="", text_4=""):
-        # Собираем все текстовые части в один список
         parts = [text_1, text_2, text_3, text_4]
-        
-        # Фильтруем список, чтобы убрать пустые строки
         non_empty_parts = [part for part in parts if part]
-        
-        # Соединяем непустые части с помощью указанного разделителя
         result = delimiter.join(non_empty_parts)
-        
         return (result,)
 
 class SnJakeMultilineText:
@@ -55,11 +58,19 @@ class SnJakeMultilineText:
             "required": {
                 "text": ("STRING", {
                     "default": "",
-                    "multiline": True, # Это свойство делает поле ввода большим
+                    "multiline": True,
                 }),
             }
         }
 
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        """
+        Этот метод заставляет ноду выполняться каждый раз.
+        Возвращая float('NaN'), мы гарантируем, что ComfyUI никогда не посчитает
+        результат этой ноды кэшированным.
+        """
+        return float("NaN")
+
     def get_text(self, text):
-        # Просто возвращаем текст, который ввел пользователь
         return (text,)
