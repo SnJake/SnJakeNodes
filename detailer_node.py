@@ -14,11 +14,16 @@ from scipy.ndimage import gaussian_filter, label, find_objects, grey_dilation, b
 # ==================================================================================
 
 def rescale_i(samples, width, height, algorithm: str):
-    """Rescales an image tensor."""
+    """Rescales an image tensor, with a fix for unexpected dimensions."""
+    # Если на вход пришел 5D тензор (например, [1, B, H, W, C]), убираем лишнее измерение
+    if samples.ndim == 5:
+        samples = samples.squeeze(0)
+
     samples = samples.movedim(-1, 1)
     rescale_pil_algorithm = getattr(Image, algorithm.upper())
     rescaled_tensors = []
     for sample in samples:
+        # Теперь 'sample' гарантированно будет 3D тензором [C, H, W]
         pil_img = F.to_pil_image(sample.cpu())
         rescaled_pil = pil_img.resize((width, height), rescale_pil_algorithm)
         rescaled_tensors.append(F.to_tensor(rescaled_pil))
@@ -372,3 +377,4 @@ class DetailerForEachMask:
         final_latent = vae.encode(image_to_process[:,:,:,:3])
 
         return (image_to_process, {"samples": final_latent}, final_processed_mask.squeeze(0))
+
