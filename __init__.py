@@ -71,6 +71,8 @@ from .random_node import SnJakeNumberNode
 
 from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
 
+from .image_resize_nodes import SnJakeResizeIfLarger
+
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
     "ScanImageFolder": ScanImageFolder,
@@ -155,6 +157,8 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeTextConcatenate": SnJakeTextConcatenate,
     "SnJakeMultilineText": SnJakeMultilineText,
 
+    "SnJakeResizeIfLarger": SnJakeResizeIfLarger,
+
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -238,7 +242,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
     "SnJakeTextConcatenate": "😎 Text Concatenate",
     "SnJakeMultilineText": "😎 Multiline Text",
-    
+
+    "SnJakeResizeIfLarger": "😎 Resize If Larger",
 }
 
 
@@ -248,6 +253,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
 
