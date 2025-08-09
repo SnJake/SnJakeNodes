@@ -73,6 +73,8 @@ from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
 
 from .image_resize_nodes import SnJakeResizeIfLarger
 
+from .sam2 import Sam2Loader, Sam2ImageInference
+
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
     "ScanImageFolder": ScanImageFolder,
@@ -159,6 +161,8 @@ NODE_CLASS_MAPPINGS = {
 
     "SnJakeResizeIfLarger": SnJakeResizeIfLarger,
 
+    "Sam2Loader": Sam2Loader,
+    "Sam2ImageInference": Sam2ImageInference,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -244,6 +248,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeMultilineText": "😎 Multiline Text",
 
     "SnJakeResizeIfLarger": "😎 Resize If Larger",
+
+    "Sam2Loader": "😎 Sam2 Loader",
+    "Sam2ImageInference": "😎 Sam2 Image Inference",
 }
 
 
@@ -253,6 +260,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
 
