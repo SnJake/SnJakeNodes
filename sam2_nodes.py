@@ -139,9 +139,11 @@ class Sam2ImageInference:
                 "sam2_model": ("SAM2_MODEL",),
                 "image": ("IMAGE",),
                 "positive_points": ("MASK",),
-                "negative_points": ("MASK",),
                 "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "multimask_output": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "negative_points": ("MASK",),
             }
         }
 
@@ -149,7 +151,8 @@ class Sam2ImageInference:
     FUNCTION = "predict"
     CATEGORY = "😎 SnJake/SAM2"
 
-    def predict(self, sam2_model, image, positive_points, negative_points, threshold, multimask_output):
+
+    def predict(self, sam2_model, image, positive_points, threshold, multimask_output, negative_points=None):
         predictor = sam2_image_predictor.SAM2ImagePredictor(
             sam_model=sam2_model,
             mask_threshold=threshold,
@@ -160,9 +163,15 @@ class Sam2ImageInference:
         print("SnJake SAM2: Установка изображения в предиктора...")
         predictor.set_image(img_np)
         
-        # Обработка промптов (точек)
+        # Обработка позитивных точек
         pos_coords = (positive_points[0] > 0).nonzero(as_tuple=False).cpu().numpy()[:, [1, 0]]
-        neg_coords = (negative_points[0] > 0).nonzero(as_tuple=False).cpu().numpy()[:, [1, 0]]
+
+        # --- ИЗМЕНЕНИЕ 3: Безопасная обработка негативных точек ---
+        if negative_points is not None:
+            neg_coords = (negative_points[0] > 0).nonzero(as_tuple=False).cpu().numpy()[:, [1, 0]]
+        else:
+            # Если негативные точки не предоставлены, создаем пустой массив
+            neg_coords = np.array([], dtype=np.int64).reshape(0, 2)
 
         if pos_coords.shape[0] == 0 and neg_coords.shape[0] == 0:
             print("SnJake SAM2 Warning: Точки для сегментации не предоставлены. Возвращается пустая маска.")
@@ -179,15 +188,12 @@ class Sam2ImageInference:
             point_coords=point_coords,
             point_labels=point_labels,
             multimask_output=multimask_output,
-            return_logits=False, # возвращаем уже бинарные маски
+            return_logits=False,
         )
 
-        # masks_np имеет форму (C, H, W), где C - количество предсказанных масок
-        # Выбираем маску с наилучшим предсказанным IoU
         best_mask_idx = np.argmax(iou_preds)
         final_mask_np = masks_np[best_mask_idx]
-
-        # Конвертируем маску в тензор float, как ожидает ComfyUI
+        
         final_mask_tensor = torch.from_numpy(final_mask_np.astype(np.float32)).unsqueeze(0)
         
         return (final_mask_tensor,)
