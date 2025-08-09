@@ -22,6 +22,7 @@ except ImportError as e:
 
 
 # --- Глобальные переменные и вспомогательные функции ---
+SAM2_MODELS_CACHE = {}
 
 # Указываем ComfyUI, где искать модели SAM-2
 SAM2_MODEL_DIR = os.path.join(folder_paths.models_dir, "sam2")
@@ -34,6 +35,8 @@ MODEL_CONFIG_MAP = {
     "hiera_base_plus": "sam2.1_hiera_b+.yaml",
     "hiera_large": "sam2.1_hiera_l.yaml",
 }
+
+
 
 def get_sam2_model_names():
     """Сканирует директорию с моделями и возвращает список доступных чекпоинтов."""
@@ -54,7 +57,7 @@ def tensor_to_numpy_image(tensor):
 # --- Реализация нод ---
 
 class Sam2Loader:
-    """Нода для загрузки модели SAM-2 и ее конфигурации."""
+    """Нода для загрузки модели SAM-2 и ее конфигурации с кешированием."""
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -70,11 +73,16 @@ class Sam2Loader:
     CATEGORY = "😎 SnJake/SAM2"
 
     def load_model(self, model_name, device):
+        # --- ИЗМЕНЕНИЕ 2: Проверяем кеш перед загрузкой ---
+        cache_key = (model_name, device)
+        if cache_key in SAM2_MODELS_CACHE:
+            print(f"SnJake SAM2: Возврат модели '{model_name}' из кеша.")
+            return SAM2_MODELS_CACHE[cache_key]
+
         ckpt_path = os.path.join(SAM2_MODEL_DIR, model_name)
         if not os.path.exists(ckpt_path):
             raise FileNotFoundError(f"Чекпоинт модели не найден: {ckpt_path}")
 
-        # Поиск соответствующего файла конфигурации
         config_name = next((v for k, v in MODEL_CONFIG_MAP.items() if k in model_name), None)
         if config_name is None:
             raise ValueError(f"Не удалось найти конфигурацию для модели: {model_name}")
@@ -85,17 +93,19 @@ class Sam2Loader:
 
         print(f"SnJake SAM2: Загрузка модели '{model_name}' с конфигурацией '{config_name}'")
 
-        # Загрузка state_dict в зависимости от типа файла
         if model_name.endswith(".safetensors"):
             sd = load_safetensors(ckpt_path, device="cpu")
         else:
             sd = torch.load(ckpt_path, map_location="cpu")
 
         model_sd = sd.get("model", sd)
+        
+        # --- ИЗМЕНЕНИЕ 3: Очищаем состояние Hydra ПЕРЕД инициализацией ---
+        # Это защищает от ошибок, если другой узел тоже использует hydra.
+        from hydra.core.global_hydra import GlobalHydra
+        if GlobalHydra.instance().is_initialized():
+            GlobalHydra.instance().clear()
 
-        # --- Кастомная загрузка чекпоинта ---
-        # Мы переопределяем внутреннюю функцию загрузки в build_sam,
-        # чтобы использовать наш уже загруженный state_dict.
         original_load_checkpoint = build_sam._load_checkpoint
         def new_load_checkpoint(model, ckpt_path):
             missing_keys, unexpected_keys = model.load_state_dict(model_sd, strict=False)
@@ -107,7 +117,6 @@ class Sam2Loader:
 
         build_sam._load_checkpoint = new_load_checkpoint
 
-        # Используем hydra для чтения конфигурации и инстанцирования модели
         from hydra import initialize_config_dir, compose
         from omegaconf import OmegaConf
 
@@ -116,18 +125,21 @@ class Sam2Loader:
             cfg = compose(config_name=os.path.basename(config_file_path))
             OmegaConf.resolve(cfg)
             
-            # Эта функция вызовет наш new_load_checkpoint
             sam_model = build_sam2(
                 config_file=config_file_path,
-                ckpt_path=ckpt_path, # формально передаем, но он не используется
+                ckpt_path=ckpt_path,
                 device=device,
                 mode="eval",
             )
         
-        # Восстанавливаем оригинальную функцию
         build_sam._load_checkpoint = original_load_checkpoint
         print("SnJake SAM2: Модель успешно загружена.")
-        return (sam_model,)
+        
+        # --- ИЗМЕНЕНИЕ 4: Сохраняем загруженную модель в кеш ---
+        # Важно сохранить как кортеж, так как нода возвращает кортеж
+        SAM2_MODELS_CACHE[cache_key] = (sam_model,)
+        
+        return SAM2_MODELS_CACHE[cache_key]
 
 
 class Sam2ImageInference:
