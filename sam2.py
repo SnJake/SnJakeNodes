@@ -67,7 +67,7 @@ class Sam2Loader:
     RETURN_TYPES = ("SAM2_MODEL",)
     RETURN_NAMES = ("sam2_model",)
     FUNCTION = "load_model"
-    CATEGORY = "SnJake/SAM2"
+    CATEGORY = "😎 SnJake/SAM2"
 
     def load_model(self, model_name, device):
         ckpt_path = os.path.join(SAM2_MODEL_DIR, model_name)
@@ -147,7 +147,7 @@ class Sam2ImageInference:
 
     RETURN_TYPES = ("MASK",)
     FUNCTION = "predict"
-    CATEGORY = "SnJake/SAM2"
+    CATEGORY = "😎 SnJake/SAM2"
 
     def predict(self, sam2_model, image, positive_points, negative_points, threshold, multimask_output):
         predictor = sam2_image_predictor.SAM2ImagePredictor(
