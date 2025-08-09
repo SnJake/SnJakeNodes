@@ -73,7 +73,7 @@ from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
 
 from .image_resize_nodes import SnJakeResizeIfLarger
 
-from .sam2 import Sam2Loader, Sam2ImageInference
+from .sam2_nodes import Sam2Loader, Sam2ImageInference
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -260,6 +260,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
 
