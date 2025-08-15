@@ -1,3 +1,4 @@
+// /ComfyUI/custom_nodes/LoRAManagerWithPreview/preview_lora_loader.js
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { $el } from "../../../scripts/ui.js";
@@ -247,5 +248,3 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-
-
