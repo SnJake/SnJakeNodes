@@ -261,11 +261,3 @@ class LoRAManagerWithPreview:
                 continue
 
         return (m, c)
-
-# Регистрация в каталоге нод
-NODE_CLASS_MAPPINGS = {
-    "LoRAManagerWithPreview": LoRAManagerWithPreview
-}
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "LoRAManagerWithPreview": "LoRAManagerWithPreview"
-}
