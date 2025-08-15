@@ -219,13 +219,16 @@ function rebuildStrengthWidgets(node) {
   if (!jsonW) return;
   const stack = parseStack(jsonW.value);
 
-  // 1) снести старые «наши» поля
+  // --- запоминаем текущий размер до перестройки
+  const prevSize = node.size ? [...node.size] : null;
+
+  // 1) удалить старые динамические поля
   for (let i = (node.widgets?.length || 0) - 1; i >= 0; i--) {
     const w = node.widgets[i];
     if (w && w._isLoraStrengthWidget) node.widgets.splice(i, 1);
   }
 
-  // 2) создать по паре number-виджетов на каждый item
+  // 2) создать новые поля
   stack.forEach((it, idx) => {
     const title = it.name || it.path.split("/").pop();
 
@@ -258,9 +261,13 @@ function rebuildStrengthWidgets(node) {
     wC._isLoraStrengthWidget = true;
   });
 
-  // финал: перерисовать
-  node.setSize(node.computeSize());
-  node.graph && node.graph.setDirtyCanvas(true, true);
+  // 3) не сжимать размер: оставляем пользовательский, но гарантируем минимальный
+  const min = node.computeSize();
+  const newW = prevSize ? Math.max(prevSize[0], min[0]) : min[0];
+  const newH = prevSize ? Math.max(prevSize[1], min[1]) : min[1];
+  node.setSize([newW, newH]);
+
+  node.setDirtyCanvas(true, true);
 }
 
 function moveWidgetToEnd(node, widget) {
@@ -273,4 +280,5 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
 
