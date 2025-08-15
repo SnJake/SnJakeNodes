@@ -133,22 +133,39 @@ function drawSelection(card, isSelected) {
   card.style.boxShadow = isSelected ? "0 0 0 1px #FFA800 inset" : "none";
 }
 
+function ensureDynamicStrengthsBuilt(node) {
+  const jsonW = node.widgets?.find(w => w.name === "lora_stack_json");
+  if (!jsonW) return;
+  const stack = parseStack(jsonW.value);
+  const alreadyBuilt = node.widgets?.some(w => w._isLoraStrengthWidget);
+  if (stack.length > 0 && !alreadyBuilt) {
+    rebuildStrengthWidgets(node);
+    const btn = node.widgets?.find(w => w.type === "button" && w.name === "Открыть менеджер");
+    moveWidgetToEnd(node, btn);
+    node.setDirtyCanvas(true, true);
+  }
+}
+
 // ----- РЕГИСТРАЦИЯ НОДЫ -----
 app.registerExtension({
   name: "Comfy.LoRAManagerWithPreview",
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== "LoRAManagerWithPreview") return;
 
+    // --- Обработка создания ноды (когда добавляется в workflow) ---
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function() {
       const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
 
-      // виджеты
+      // Включаем сериализацию, чтобы значения виджетов сохранялись в workflow
+      this.serialize_widgets = true;
       const jsonW = this.widgets?.find(w => w.name === "lora_stack_json");
+      if (jsonW) jsonW.serialize = true;
+
       const dirW  = this.widgets?.find(w => w.name === "directory_filter");
       if (!jsonW) console.error("LoRAManager: hidden lora_stack_json not found");
 
-      // кнопка менеджера
+      // Добавляем кнопку менеджера
       const btn = this.addWidget("button", "Открыть менеджер", null, () => {
         const stack = parseStack(jsonW?.value);
         const selected = new Set(stack.map(x => x.path));
@@ -157,7 +174,6 @@ app.registerExtension({
           initialSelectedPaths: selected,
           directoryFilter: filter,
           onSave: (paths) => {
-            // сохранить стек: по возможности сохранить прежние силы
             const prev = parseStack(jsonW?.value);
             const prevMap = Object.fromEntries(prev.map(x => [x.path, x]));
             const next = paths.map(p => ({
@@ -167,24 +183,33 @@ app.registerExtension({
               strength_clip:  (prevMap[p]?.strength_clip  ?? 1.0),
             }));
             jsonW.value = stringifyStack(next);
-            rebuildStrengthWidgets(this);       // перерисовать пары полей
-            moveWidgetToEnd(this, btn);         // увести кнопку вниз
+            rebuildStrengthWidgets(this);
+            moveWidgetToEnd(this, btn);
             this.setDirtyCanvas(true, true);
           }
         });
       }, { serialize: false });
 
-      // первичная отрисовка пар полей из сохранённого стека
+      // Первая отрисовка (при создании ноды с нуля стек будет пуст)
       rebuildStrengthWidgets(this);
       moveWidgetToEnd(this, btn);
 
-      // если меняют фильтр директории — это только для списка в модалке,
-      // поэтому коллбек можно не трогать.
+      // Страховка на случай, если значения применяются с задержкой
+      setTimeout(() => ensureDynamicStrengthsBuilt(this), 0);
 
       return r;
     };
 
-    // на ресайз — ничего особого не требуется
+    // --- Обработка конфигурации (когда workflow ЗАГРУЖАЕТСЯ) ---
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function (info) {
+      const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
+      // В этот момент lora_stack_json уже должен содержать сохранённое значение
+      ensureDynamicStrengthsBuilt(this);
+      // Иногда Comfy применяет widgets_values чуть позже — подстрахуемся ещё раз
+      setTimeout(() => ensureDynamicStrengthsBuilt(this), 0);
+      return r;
+    };
   }
 });
 
@@ -248,3 +273,4 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
