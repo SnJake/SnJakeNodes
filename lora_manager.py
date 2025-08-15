@@ -207,15 +207,15 @@ class LoRAManagerWithPreview:
         return h.hexdigest()
 
     def _load_lora_sd(self, lora_path_abs):
-        """Загрузка LoRA с кэшем по mtime/size (CPU), безопасно для VRAM."""
         try:
             st = os.stat(lora_path_abs)
             key = os.path.normpath(lora_path_abs)
             cached = self._cache.get(key)
             if cached and cached.get("mtime") == st.st_mtime and cached.get("size") == st.st_size and cached.get("sd") is not None:
                 return cached["sd"]
-
-            sd = comfy.utils.load_torch_file(lora_path_abs, safe_load=True, device="cpu")
+    
+            # БЕЗ device=...
+            sd = comfy.utils.load_torch_file(lora_path_abs, safe_load=True)
             self._cache[key] = {"sd": sd, "mtime": st.st_mtime, "size": st.st_size}
             return sd
         except Exception as e:
@@ -261,3 +261,4 @@ class LoRAManagerWithPreview:
                 continue
 
         return (m, c)
+
