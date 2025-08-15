@@ -49,7 +49,7 @@ from .pixel_art_utils import ExtractPaletteNode, ApplyPaletteNode, ReplacePalett
 
 from .xy_plot_node import XYPlotAdvanced
 
-from .lora_loader_preview import LoraLoaderWithPreview
+from .lora_manager import LoRAManagerWithPreview
 
 from .datetime_node import DateTimeToStringNode
 
@@ -124,7 +124,7 @@ NODE_CLASS_MAPPINGS = {
 
 
     "XYPlotAdvanced": XYPlotAdvanced,
-    "LoraLoaderWithPreview": LoraLoaderWithPreview,
+    "LoRAManagerWithPreview": LoRAManagerWithPreview,
     
     "DateTimeToStringNode": DateTimeToStringNode,
 
@@ -210,7 +210,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     
     "XYPlotAdvanced": "😎 XY Plot Advanced",
     
-    "LoraLoaderWithPreview": "😎 Lora Loader With Preview",
+    "LoRAManagerWithPreview": "😎 LoRA Manager With Preview",
     
     "DateTimeToStringNode": "😎 Date Time To String",
 
@@ -252,6 +252,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
 
