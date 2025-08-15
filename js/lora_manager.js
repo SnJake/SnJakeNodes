@@ -142,27 +142,6 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function() {
       const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
 
-
-      this.color   = "#2e2e36";
-      this.bgcolor = "#41414a";
-      this.boxcolor = "#555A";
-      this.setDirtyCanvas(true, true);
-
-
-      return r;
-    };
-
-    const onConfigure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function (info) {
-      const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
-      this.color   = this.color   || "#2e2e36";
-      this.bgcolor = this.bgcolor || "#41414a";
-      this.boxcolor = this.boxcolor || "#555A";
-      return r;
-    };
-  }
-});
-
       // виджеты
       const jsonW = this.widgets?.find(w => w.name === "lora_stack_json");
       const dirW  = this.widgets?.find(w => w.name === "directory_filter");
@@ -268,4 +247,5 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
 
