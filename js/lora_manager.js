@@ -3,7 +3,7 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { $el } from "../../../scripts/ui.js";
 
-let ITEM_W = 110;           // было const -> теперь let, чтобы рулить слайдером
+// ITEM_W теперь инициализируется в buildModal через loadScale()
 const GAP = 8;
 
 function joinPath(a, b){
@@ -17,6 +17,21 @@ function parentPath(p){
   return parts.length ? `/${parts.join("/")}` : "/";
 }
 
+// --- Persist keys
+const LS_KEYS = { scale: "loraMgr.scale", lastDir: "loraMgr.lastDir" };
+
+function loadScale() {
+  const v = parseInt(localStorage.getItem(LS_KEYS.scale), 10);
+  return Number.isFinite(v) ? Math.min(220, Math.max(80, v)) : 110;
+}
+function saveScale(v) { localStorage.setItem(LS_KEYS.scale, String(v)); }
+
+function loadLastDir() {
+  const d = localStorage.getItem(LS_KEYS.lastDir);
+  return d && d.startsWith("/") ? d : "/";
+}
+function saveLastDir(d) { localStorage.setItem(LS_KEYS.lastDir, d || "/"); }
+
 function parseStack(jsonStr) {
   try { const v = JSON.parse(jsonStr || "[]"); return Array.isArray(v) ? v : []; }
   catch { return []; }
@@ -26,6 +41,7 @@ function stringifyStack(arr) {
 }
 
 function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", onSave }) {
+  let ITEM_W = loadScale(); // вместо жёсткого 110
   const overlay = $el("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }});
   const panel = $el("div", { style: { width: "80vw", maxWidth: "1200px", height: "80vh", background: "var(--comfy-menu-bg,#222)", border: "1px solid var(--border-color,#444)", borderRadius: "8px", boxShadow: "0 10px 30px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", overflow: "hidden" }});
 
@@ -40,16 +56,23 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
   });
   const scaleInput = $el("input", {
     type: "range", min: 80, max: 220, step: 10, value: ITEM_W,
-    oninput: (e) => { ITEM_W = parseInt(e.target.value,10) || 110; renderGrid(); }
+    oninput: (e) => {
+      ITEM_W = parseInt(e.target.value, 10) || 110;
+      saveScale(ITEM_W);        // <-- сохраняем масштаб
+      renderGrid();
+    }
   });
   const scaleLabel = $el("span", { innerText: "Масштаб", style: { fontSize: "12px", opacity: .85 } });
+  const counter = $el("div", { style: { fontSize: "12px", opacity: .85, justifySelf: "end" }});
 
   const header = $el("div", {
-    style: { padding: "10px 14px", display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "10px", alignItems: "center", borderBottom: "1px solid var(--border-color,#444)" }
+    style: { padding: "10px 14px", display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto", gap: "10px", alignItems: "center", borderBottom: "1px solid var(--border-color,#444)" }
   }, [
     $el("div", {}, [titleEl, breadcrumb]),
-    scaleLabel, scaleInput,
+    scaleLabel,
+    scaleInput,
     $el("div", {}, [searchInput]),
+    counter, // <-- добавили
     $el("div", { style: { display: "flex", gap: "8px", justifySelf: "end" }}, [
       $el("button", { innerText: "Отмена", onclick: () => document.body.removeChild(overlay) }),
       $el("button", { innerText: "Сохранить", style: { fontWeight: 600 }, onclick: () => { onSave(Array.from(selectedPaths)); document.body.removeChild(overlay); }})
@@ -68,9 +91,15 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
 
   // --- state ---
   const selectedPaths = new Set(initialSelectedPaths);
-  let currentDir = directoryFilter || "/";
+  let currentDir = (directoryFilter && directoryFilter !== "/" ? directoryFilter : loadLastDir()) || "/";
   let currentDirs = [];
   let currentFiles = [];
+
+  function updateCounter() {
+    const d = currentDirs?.length || 0;
+    const f = currentFiles?.length || 0;
+    counter.innerText = `Папок: ${d} · Файлов: ${f} · Всего: ${d + f}`;
+  }
 
   function renderBreadcrumb() {
     const parts = currentDir === "/" ? [] : currentDir.split("/").filter(Boolean);
@@ -167,6 +196,8 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
       grid.appendChild(card);
       drawSelection(card, selectedPaths.has(lora.path));
     });
+
+    updateCounter();
   }
 
   function loadDir(dir) {
@@ -175,6 +206,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(({cwd, dirs, files}) => {
         currentDir = cwd || target;
+        saveLastDir(currentDir);              // <-- сохраняем путь
         currentDirs = Array.isArray(dirs) ? dirs : [];
         currentFiles = Array.isArray(files) ? files : [];
         renderGrid();
