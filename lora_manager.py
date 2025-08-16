@@ -152,6 +152,67 @@ async def list_loras_with_previews(request):
     lora_items.sort(key=lambda x: x["name"].lower())
     return server.web.json_response(lora_items)
 
+# ---------- HTTP: листинг одной папки (shallow) ----------
+@server.PromptServer.instance.routes.get("/lora_loader_preview/list_dir")
+async def list_dir(request):
+    import urllib.parse
+    directory = request.query.get('directory', '/')
+    q = (request.query.get('q') or '').strip().lower()
+
+    # нормализуем путь "/*"
+    norm_dir = directory.strip('/\\').replace("\\", "/")
+    rel_prefix = "" if norm_dir == "" else norm_dir
+
+    lora_base_paths = folder_paths.get_folder_paths("loras")
+    dirs, files = [], []
+    seen_dirs, seen_files = set(), set()
+
+    for base_path in lora_base_paths:
+        abs_base = os.path.abspath(base_path)
+        target_abs = abs_base if rel_prefix == "" else os.path.join(abs_base, rel_prefix)
+        if not os.path.isdir(target_abs):
+            continue
+        try:
+            with os.scandir(target_abs) as it:
+                for entry in it:
+                    try:
+                        rel_path = Path(entry.path).relative_to(abs_base).as_posix()
+                    except ValueError:
+                        continue
+
+                    if entry.is_dir():
+                        name = os.path.basename(entry.path)
+                        if rel_path not in seen_dirs:
+                            seen_dirs.add(rel_path)
+                            dirs.append({"name": name, "path": rel_path})
+                    else:
+                        base_name, ext = os.path.splitext(entry.name)
+                        if ext.lower() in folder_paths.supported_pt_extensions:
+                            if q and q not in entry.name.lower():
+                                continue
+                            if rel_path in seen_files:
+                                continue
+                            seen_files.add(rel_path)
+
+                            # превью (если есть файл-сосед по имени)
+                            preview_url = None
+                            for pext in PREVIEW_IMAGE_EXTENSIONS:
+                                if os.path.isfile(os.path.join(os.path.dirname(entry.path), base_name + pext)):
+                                    encoded = urllib.parse.quote(rel_path)
+                                    preview_url = f"/lora_loader_preview/get_preview?lora_path={encoded}"
+                                    break
+                            files.append({"name": entry.name, "path": rel_path, "preview_url": preview_url})
+        except OSError as e:
+            logger.warning(f"[list_dir] {e}")
+        except Exception as e:
+            logger.error(f"[list_dir] {e}", exc_info=True)
+
+    dirs.sort(key=lambda x: x["name"].lower())
+    files.sort(key=lambda x: x["name"].lower())
+    cwd = "/" + norm_dir if norm_dir else "/"
+    return server.web.json_response({"cwd": cwd, "dirs": dirs, "files": files})
+
+
 # ---------- ОСНОВНАЯ НОДА: мульти-стек LoRA ----------
 class LoRAManagerWithPreview:
     CATEGORY = "😎 SnJake/LoRA"
