@@ -3,8 +3,19 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { $el } from "../../../scripts/ui.js";
 
-const ITEM_W = 110;
+let ITEM_W = 110;           // было const -> теперь let, чтобы рулить слайдером
 const GAP = 8;
+
+function joinPath(a, b){
+  if (!a || a === "/") return b || "";
+  if (!b) return a;
+  return `${a.replace(/^\/|\/$/g,"")}/${b.replace(/^\/|\/$/g,"")}`;
+}
+function parentPath(p){
+  const parts = (p || "/").split("/").filter(Boolean);
+  parts.pop();
+  return parts.length ? `/${parts.join("/")}` : "/";
+}
 
 function parseStack(jsonStr) {
   try { const v = JSON.parse(jsonStr || "[]"); return Array.isArray(v) ? v : []; }
@@ -15,117 +26,167 @@ function stringifyStack(arr) {
 }
 
 function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", onSave }) {
-  const overlay = $el("div", {
-    style: {
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9999,
-      display: "flex", alignItems: "center", justifyContent: "center"
-    }
+  const overlay = $el("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }});
+  const panel = $el("div", { style: { width: "80vw", maxWidth: "1200px", height: "80vh", background: "var(--comfy-menu-bg,#222)", border: "1px solid var(--border-color,#444)", borderRadius: "8px", boxShadow: "0 10px 30px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", overflow: "hidden" }});
+
+  // --- header ---
+  const titleEl = $el("div", { innerText: "LoRA Manager", style: { fontWeight: 600 }});
+  const breadcrumb = $el("div", { style: { fontSize: "12px", opacity: .85 }});
+  const searchInput = $el("input", {
+    type: "search",
+    placeholder: "Поиск в текущей папке…",
+    style: { width: "240px" },
+    oninput: () => renderGrid()
   });
-  const panel = $el("div", {
-    style: {
-      width: "80vw", maxWidth: "1200px", height: "80vh", background: "var(--comfy-menu-bg,#222)",
-      border: "1px solid var(--border-color,#444)", borderRadius: "8px", boxShadow: "0 10px 30px rgba(0,0,0,.5)",
-      display: "flex", flexDirection: "column", overflow: "hidden"
-    }
+  const scaleInput = $el("input", {
+    type: "range", min: 80, max: 220, step: 10, value: ITEM_W,
+    oninput: (e) => { ITEM_W = parseInt(e.target.value,10) || 110; renderGrid(); }
   });
+  const scaleLabel = $el("span", { innerText: "Масштаб", style: { fontSize: "12px", opacity: .85 } });
 
   const header = $el("div", {
-    style: {
-      padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px",
-      borderBottom: "1px solid var(--border-color,#444)"
-    }
+    style: { padding: "10px 14px", display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "10px", alignItems: "center", borderBottom: "1px solid var(--border-color,#444)" }
   }, [
-    $el("div", { innerText: "LoRA Manager", style: { fontWeight: 600, flex: 1 } }),
-    $el("button", { innerText: "Отмена", onclick: () => document.body.removeChild(overlay) }),
-    $el("button", { innerText: "Сохранить", style: { fontWeight: 600 }, onclick: () => {
-      const paths = Array.from(selectedPaths);
-      onSave(paths);
-      document.body.removeChild(overlay);
-    }})
+    $el("div", {}, [titleEl, breadcrumb]),
+    scaleLabel, scaleInput,
+    $el("div", {}, [searchInput]),
+    $el("div", { style: { display: "flex", gap: "8px", justifySelf: "end" }}, [
+      $el("button", { innerText: "Отмена", onclick: () => document.body.removeChild(overlay) }),
+      $el("button", { innerText: "Сохранить", style: { fontWeight: 600 }, onclick: () => { onSave(Array.from(selectedPaths)); document.body.removeChild(overlay); }})
+    ])
   ]);
 
-  const body = $el("div", {
-    style: { flex: 1, overflow: "auto", padding: "12px" }
-  });
-
-  const grid = $el("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: `repeat(auto-fill,minmax(${ITEM_W}px,1fr))`,
-      gap: `${GAP}px`
-    }
-  });
-
+  // --- body ---
+  const body = $el("div", { style: { flex: 1, overflow: "auto", padding: "12px" }});
+  const grid = $el("div", { style: { display: "grid", gap: `${GAP}px` }});
   body.appendChild(grid);
+
   panel.appendChild(header);
   panel.appendChild(body);
   overlay.appendChild(panel);
+  document.body.appendChild(overlay);
 
-  // текущее множество выбранных
+  // --- state ---
   const selectedPaths = new Set(initialSelectedPaths);
+  let currentDir = directoryFilter || "/";
+  let currentDirs = [];
+  let currentFiles = [];
 
-  // загрузить список LoRA
-  const url = `/lora_loader_preview/list_loras?directory_filter=${encodeURIComponent(directoryFilter || "/")}`;
-  api.fetchApi(url)
-    .then(r => r.ok ? r.json() : Promise.reject(r.status))
-    .then(items => {
-      if (!Array.isArray(items)) items = [];
-      items.forEach(lora => {
-        const card = $el("div", {
-          title: lora.path,
-          style: {
-            border: "1px solid var(--border-color,#555)",
-            borderRadius: "6px",
-            overflow: "hidden",
-            background: "var(--comfy-input-bg,#2a2a2a)",
-            cursor: "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center"
-          },
-          onclick: () => {
-            const was = selectedPaths.has(lora.path);
-            if (was) selectedPaths.delete(lora.path); else selectedPaths.add(lora.path);
-            drawSelection(card, selectedPaths.has(lora.path));
-          }
-        });
+  function renderBreadcrumb() {
+    const parts = currentDir === "/" ? [] : currentDir.split("/").filter(Boolean);
+    breadcrumb.innerHTML = "";
+    const frag = [];
+    const home = $el("a", { href: "#", onclick: (e)=>{ e.preventDefault(); loadDir("/"); }, innerText: " / " });
+    frag.push(home);
+    let acc = "";
+    parts.forEach((p, i) => {
+      acc = acc ? `${acc}/${p}` : p;
+      frag.push($el("span", { innerText: " " }));
+      frag.push($el("a", {
+        href: "#",
+        onclick: (e)=>{ e.preventDefault(); loadDir("/" + acc); },
+        innerText: "/" + p
+      }));
+    });
+    breadcrumb.append(...frag);
+  }
 
-        const imgWrap = $el("div", {
-          style: {
-            width: "100%", aspectRatio: "1 / 1",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            background: "var(--bg-color,#1c1c1c)"
-          }
-        });
+  function cardBase(opts={}) {
+    return $el("div", Object.assign({
+      style: {
+        border: "1px solid var(--border-color,#555)",
+        borderRadius: "6px",
+        overflow: "hidden",
+        background: "var(--comfy-input-bg,#2a2a2a)",
+        cursor: "pointer",
+        display: "flex", flexDirection: "column", alignItems: "center"
+      }
+    }, opts));
+  }
 
-        if (lora.preview_url) {
-          const img = new Image();
-          img.src = lora.preview_url;
-          img.style.maxWidth = "100%";
-          img.style.maxHeight = "100%";
-          img.style.objectFit = "contain";
-          img.loading = "lazy";
-          imgWrap.appendChild(img);
-        } else {
-          imgWrap.appendChild($el("div", { innerText: "No preview", style: { fontSize: "10px", opacity: .7 }}));
-        }
+  function renderGrid() {
+    renderBreadcrumb();
+    grid.style.gridTemplateColumns = `repeat(auto-fill,minmax(${ITEM_W}px,1fr))`;
+    grid.innerHTML = "";
 
-        const name = $el("div", {
-          innerText: lora.name.replace(/\.(safetensors|pt|ckpt|bin|pth|pkl|sft)$/i,""),
-          style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }
-        });
+    // "… Назад" — только если НЕ корень
+    if (currentDir !== "/") {
+      const back = cardBase({ onclick: ()=> loadDir(parentPath(currentDir)) });
+      const icon = $el("div", { innerText: "…", style: { fontSize: Math.round(ITEM_W * 0.6) + "px", lineHeight: 1, paddingTop: "8px" }});
+      const name = $el("div", { innerText: "Назад", style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }});
+      back.appendChild(icon); back.appendChild(name);
+      grid.appendChild(back);
+    }
 
-        card.appendChild(imgWrap);
-        card.appendChild(name);
-        grid.appendChild(card);
-
-        // первичная подсветка
-        drawSelection(card, selectedPaths.has(lora.path));
-      });
-    })
-    .catch(err => {
-      grid.appendChild($el("div", { innerText: `Ошибка загрузки (${err})`, style: { color: "tomato" }}));
+    // Папки — иконка 📁 (масштабируемая)
+    currentDirs.forEach(d => {
+      const card = cardBase({ onclick: ()=> loadDir("/" + d.path.replace(/^\/?/,"")) });
+      const icon = $el("div", { innerText: "📁", style: { fontSize: Math.round(ITEM_W * 0.6) + "px", lineHeight: 1, paddingTop: "8px" }});
+      const name = $el("div", { innerText: d.name, style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }});
+      card.appendChild(icon); card.appendChild(name);
+      grid.appendChild(card);
     });
 
-  document.body.appendChild(overlay);
+    // Файлы — с локальным поиском по имени в ТЕКУЩЕЙ папке
+    const q = (searchInput.value || "").trim().toLowerCase();
+    const files = q ? currentFiles.filter(f => f.name.toLowerCase().includes(q)) : currentFiles;
+
+    files.forEach(lora => {
+      const card = cardBase({
+        title: lora.path,
+        onclick: () => {
+          const was = selectedPaths.has(lora.path);
+          if (was) selectedPaths.delete(lora.path); else selectedPaths.add(lora.path);
+          drawSelection(card, selectedPaths.has(lora.path));
+        }
+      });
+
+      const imgWrap = $el("div", {
+        style: { width: "100%", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-color,#1c1c1c)" }
+      });
+
+      if (lora.preview_url) {
+        const img = new Image();
+        img.src = lora.preview_url;
+        img.style.maxWidth = "100%";
+        img.style.maxHeight = "100%";
+        img.style.objectFit = "contain";
+        img.loading = "lazy";
+        imgWrap.appendChild(img);
+      } else {
+        imgWrap.appendChild($el("div", { innerText: "No preview", style: { fontSize: "10px", opacity: .7 }}));
+      }
+
+      const name = $el("div", {
+        innerText: lora.name.replace(/\.(safetensors|pt|ckpt|bin|pth|pkl|sft)$/i,""),
+        style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }
+      });
+
+      card.appendChild(imgWrap);
+      card.appendChild(name);
+      grid.appendChild(card);
+      drawSelection(card, selectedPaths.has(lora.path));
+    });
+  }
+
+  function loadDir(dir) {
+    const target = dir || "/";
+    fetch(`/lora_loader_preview/list_dir?directory=${encodeURIComponent(target)}`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(({cwd, dirs, files}) => {
+        currentDir = cwd || target;
+        currentDirs = Array.isArray(dirs) ? dirs : [];
+        currentFiles = Array.isArray(files) ? files : [];
+        renderGrid();
+      })
+      .catch(err => {
+        grid.innerHTML = "";
+        grid.appendChild($el("div", { innerText: `Ошибка загрузки (${err})`, style: { color: "tomato" }}));
+      });
+  }
+
+  // первая загрузка
+  loadDir(currentDir);
 }
 
 function drawSelection(card, isSelected) {
@@ -280,5 +341,3 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-
-
