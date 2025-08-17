@@ -157,7 +157,9 @@ def crop_magic_im(image, mask, x, y, w, h, target_w, target_h, padding, downscal
     if up_padding > 0: canvas_image[:, :up_padding, :, :] = canvas_image[:, up_padding:up_padding+1, :, :].repeat(1, up_padding, 1, 1)
     if down_padding > 0: canvas_image[:, -down_padding:, :, :] = canvas_image[:, -down_padding-1:-down_padding, :, :].repeat(1, down_padding, 1, 1)
     if left_padding > 0: canvas_image[:, :, :left_padding, :] = canvas_image[:, :, left_padding:left_padding+1, :].repeat(1, 1, left_padding, 1)
-    if right_padding > 0: canvas_image[:, :, -right_padding:, :] = canvas_image[:, :, -right_padding:, :].clone()[:, :, -right_padding-1:-right_padding, :].repeat(1, 1, right_padding, 1)
+    if right_padding > 0:
+        src = canvas_image[:, :, expanded_image_w - right_padding - 1 : expanded_image_w - right_padding, :]
+        canvas_image[:, :, expanded_image_w - right_padding : , :] = src.repeat(1, 1, right_padding, 1)
 
     # Step 5: Define coordinate systems
     # cto: canvas to original
