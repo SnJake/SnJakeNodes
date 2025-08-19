@@ -22,7 +22,7 @@ class QwenImageResolutionCalc:
         "3:4":  (1140, 1472),
     }
 
-    CATEGORY = "😎 SnJake/Utils
+    CATEGORY = "😎 SnJake/Utils"
     RETURN_TYPES = ("INT", "INT", "STRING", "STRING")
     RETURN_NAMES = ("width", "height", "resolution", "info")
     FUNCTION = "calc"
