@@ -73,6 +73,8 @@ from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
 
 from .image_resize_nodes import SnJakeResizeIfLarger
 
+from .qwenrescal import QwenImageResolutionCalc
+
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
     "ScanImageFolder": ScanImageFolder,
@@ -158,6 +160,8 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeMultilineText": SnJakeMultilineText,
 
     "SnJakeResizeIfLarger": SnJakeResizeIfLarger,
+
+    "QwenImageResolutionCalc": QwenImageResolutionCalc,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -243,6 +247,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeMultilineText": "😎 Multiline Text",
 
     "SnJakeResizeIfLarger": "😎 Resize If Larger",
+
+    "QwenImageResolutionCalc": "😎 Qwen-Image Resolution Calc",
 }
 
 
@@ -252,6 +258,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
 
