@@ -1,4 +1,6 @@
 import torch
+import torchvision.transforms.functional as F
+from torchvision.transforms import InterpolationMode
 
 class SnJakeResizeIfLarger:
     """
@@ -19,7 +21,7 @@ class SnJakeResizeIfLarger:
                 "target_resolution": ("INT", {
                     "default": 1024, 
                     "min": 64, 
-                    "max": 8192,  # Максимальное разумное разрешение
+                    "max": 8192,
                     "step": 8,
                 }),
                 "keep_aspect_ratio": ("BOOLEAN", {
@@ -27,47 +29,52 @@ class SnJakeResizeIfLarger:
                     "label_on": "enabled", 
                     "label_off": "disabled"
                 }),
+                "interpolation_method": (["lanczos", "bicubic", "bilinear", "nearest"], {
+                    "default": "lanczos"
+                }),
             }
         }
 
-    def resize_if_larger(self, image, target_resolution, keep_aspect_ratio):
+    def resize_if_larger(self, image, target_resolution, keep_aspect_ratio, interpolation_method):
         # Получаем размеры батча изображений. image.shape: [B, H, W, C]
         _batch, height, width, _channels = image.shape
 
         # --- УСЛОВИЕ ПРОВЕРКИ ---
-        # Если и ширина, и высота уже меньше или равны целевому разрешению,
-        # то ничего не делаем и просто возвращаем оригинальное изображение.
         if height <= target_resolution and width <= target_resolution:
             print(f"SnJake Resize: Image is {width}x{height}, which is within the {target_resolution}px limit. Skipping.")
             return (image,)
 
-        print(f"SnJake Resize: Resizing image from {width}x{height} to target ~{target_resolution}px")
+        print(f"SnJake Resize: Resizing image from {width}x{height} to target ~{target_resolution}px using {interpolation_method}")
 
         if keep_aspect_ratio:
-            # Сохраняем соотношение сторон
-            # Находим большую сторону и вычисляем коэффициент масштабирования
             if width > height:
                 scale_factor = target_resolution / width
             else:
                 scale_factor = target_resolution / height
             
-            # Рассчитываем новые размеры
             new_width = int(width * scale_factor)
             new_height = int(height * scale_factor)
         else:
-            # Не сохраняем соотношение сторон, просто ужимаем/растягиваем до квадрата
             new_width = target_resolution
             new_height = target_resolution
 
-        # Для функции interpolate нам нужно изменить порядок измерений на [B, C, H, W]
+        # Для функции resize нам нужно изменить порядок измерений на [B, C, H, W]
         img_bchw = image.permute(0, 3, 1, 2)
+
+        # Словарь для сопоставления строковых имен методов с объектами InterpolationMode
+        interpolation_map = {
+            "lanczos": InterpolationMode.LANCZOS,
+            "bicubic": InterpolationMode.BICUBIC,
+            "bilinear": InterpolationMode.BILINEAR,
+            "nearest": InterpolationMode.NEAREST,
+        }
         
-        # Выполняем изменение размера
-        resized_img = torch.nn.functional.interpolate(
+        # Выполняем изменение размера с использованием выбранного метода
+        resized_img = F.resize(
             img_bchw, 
-            size=(new_height, new_width), 
-            mode='bilinear', 
-            align_corners=False
+            size=[new_height, new_width], 
+            interpolation=interpolation_map.get(interpolation_method, InterpolationMode.LANCZOS),
+            antialias=True  # Рекомендуется для лучшего качества
         )
         
         # Возвращаем порядок измерений обратно к [B, H, W, C]
