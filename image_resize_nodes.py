@@ -1,6 +1,5 @@
 import torch
-import torchvision.transforms.functional as F
-from torchvision.transforms import InterpolationMode
+import comfy.utils
 
 class SnJakeResizeIfLarger:
     """
@@ -29,13 +28,14 @@ class SnJakeResizeIfLarger:
                     "label_on": "enabled", 
                     "label_off": "disabled"
                 }),
-                "interpolation_method": (["lanczos", "bicubic", "bilinear", "nearest"], {
+                # 2. Список методов, поддерживаемых comfy.utils.common_upscale
+                "upscale_method": (["lanczos", "bicubic", "bilinear", "nearest-exact", "area"], {
                     "default": "lanczos"
                 }),
             }
         }
 
-    def resize_if_larger(self, image, target_resolution, keep_aspect_ratio, interpolation_method):
+    def resize_if_larger(self, image, target_resolution, keep_aspect_ratio, upscale_method):
         # Получаем размеры батча изображений. image.shape: [B, H, W, C]
         _batch, height, width, _channels = image.shape
 
@@ -44,7 +44,7 @@ class SnJakeResizeIfLarger:
             print(f"SnJake Resize: Image is {width}x{height}, which is within the {target_resolution}px limit. Skipping.")
             return (image,)
 
-        print(f"SnJake Resize: Resizing image from {width}x{height} to target ~{target_resolution}px using {interpolation_method}")
+        print(f"SnJake Resize: Resizing image from {width}x{height} to target ~{target_resolution}px using {upscale_method}")
 
         if keep_aspect_ratio:
             if width > height:
@@ -58,26 +58,20 @@ class SnJakeResizeIfLarger:
             new_width = target_resolution
             new_height = target_resolution
 
-        # Для функции resize нам нужно изменить порядок измерений на [B, C, H, W]
+        # Функции из comfy.utils ожидают формат [B, C, H, W]
         img_bchw = image.permute(0, 3, 1, 2)
-
-        # Словарь для сопоставления строковых имен методов с объектами InterpolationMode
-        interpolation_map = {
-            "lanczos": InterpolationMode.LANCZOS,
-            "bicubic": InterpolationMode.BICUBIC,
-            "bilinear": InterpolationMode.BILINEAR,
-            "nearest": InterpolationMode.NEAREST,
-        }
         
-        # Выполняем изменение размера с использованием выбранного метода
-        resized_img = F.resize(
+        # 3. Используем универсальную функцию из ComfyUI
+        # Она сама вызовет нужный метод интерполяции
+        resized_img = comfy.utils.common_upscale(
             img_bchw, 
-            size=[new_height, new_width], 
-            interpolation=interpolation_map.get(interpolation_method, InterpolationMode.LANCZOS),
-            antialias=True  # Рекомендуется для лучшего качества
+            new_width, 
+            new_height, 
+            upscale_method, 
+            "disabled"  # Параметр crop нам не нужен, т.к. мы сами рассчитали размеры
         )
         
-        # Возвращаем порядок измерений обратно к [B, H, W, C]
+        # Возвращаем формат обратно к [B, H, W, C]
         resized_img_bhwc = resized_img.permute(0, 2, 3, 1)
 
         return (resized_img_bhwc,)
