@@ -98,11 +98,14 @@ All nodes can be found in the "Add Node" menu under the **`😎 SnJake/...`** ca
 - **AnyNode Local LLM** (`anynode_snjake.py`): Same as AnyNode, but configured to work with a local OpenAI-compatible API endpoint.
 
 ### 🧪 Experimental & Advanced
-- **Lora Loader With Preview** (`lora_loader_preview.py`): A LoRA loader that includes a visual preview of the LoRA's associated image in the ComfyUI interface.
+- **LoRA Manager With Preview** (`lora_manager.py`): A LoRA loader that includes a visual preview of the LoRA's associated image in the ComfyUI interface.
 - **XY Plot Advanced** (`xy_plot_node.py`): An advanced XY plot node for generating a grid of images by varying two parameters (e.g., Seed, CFG, Steps, Prompt S/R). Includes built-in Hires Fix.
+
+And also some other nodes that are not on the list.
 
 ---
 
 ## 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
