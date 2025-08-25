@@ -64,8 +64,3 @@ class SegmentationPixelArtNode:
         final_tensor = torch.from_numpy(final_np)[None,]  # [1,H,W,C]
 
         return (final_tensor,)
-
-# Регистрируем узел
-NODE_CLASS_MAPPINGS = {
-    "SegmentationPixelArtNode": SegmentationPixelArtNode
-}
