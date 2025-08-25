@@ -7,10 +7,8 @@ class LoraSwitchDynamic:
     
     @classmethod
     def INPUT_TYPES(cls):
-        # ВАЖНО: Мы добавляем флаг "lazy": True ко всем опциональным входам.
-        # Это говорит ComfyUI не вычислять их, пока нода не попросит.
+
         optional_inputs = {}
-        # Создадим 6 пар по умолчанию, JS сможет добавить еще
         for i in range(1, 7): 
             optional_inputs[f"model_{i}"] = ("MODEL", {"lazy": True})
             optional_inputs[f"clip_{i}"] = ("CLIP", {"lazy": True})
