@@ -21,9 +21,6 @@ class LoraSwitchDynamic:
     CATEGORY = "😎 SnJake/LoRA"
 
     def check_lazy_status(self, select, **kwargs):
-        """
-        Этот метод вызывается ДО основного, чтобы определить, какие 'lazy' входы нужно вычислить.
-        """
         # `select` - это простое число (int), а не список. Убираем [0].
         selected_index = select
         
@@ -33,10 +30,6 @@ class LoraSwitchDynamic:
         return [needed_model, needed_clip]
 
     def switch_pair(self, select, pairs, **kwargs):
-        """
-        Эта функция теперь будет вызвана ПОСЛЕ того, как ComfyUI вычислит
-        только те входы, которые мы запросили в check_lazy_status.
-        """
         # `select` - это простое число (int), а не список. Убираем [0].
         selected_index = select
         
