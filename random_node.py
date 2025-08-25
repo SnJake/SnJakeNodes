@@ -1,9 +1,4 @@
 class SnJakeNumberNode:
-    """
-    Эта нода принимает число (seed) через виджет и передает его на выходы
-    в виде INT и FLOAT. Поддерживает 'control_after_generate' для инкремента и т.д.
-    """
-    
     FUNCTION = "get_number"
     CATEGORY = "😎 SnJake/Utils"
     RETURN_TYPES = ("INT", "FLOAT")
