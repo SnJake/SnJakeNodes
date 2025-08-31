@@ -1,9 +1,9 @@
 class LoraSwitchDynamic:
     @classmethod
     def INPUT_TYPES(cls):
+
         optional_inputs = {}
-        # объявляем до 99 пар, чтобы UI и бэкенд были согласованы
-        for i in range(1, 100):
+        for i in range(1, 7): 
             optional_inputs[f"model_{i}"] = ("MODEL", {"lazy": True})
             optional_inputs[f"clip_{i}"] = ("CLIP", {"lazy": True})
 
@@ -12,7 +12,7 @@ class LoraSwitchDynamic:
                 "select": ("INT", {"default": 1, "min": 1, "max": 99}),
                 "pairs": ("INT", {"default": 6, "min": 1, "max": 99}),
             },
-            "optional": optional_inputs,
+            "optional": optional_inputs
         }
 
     RETURN_TYPES = ("MODEL", "CLIP")
@@ -20,30 +20,25 @@ class LoraSwitchDynamic:
     FUNCTION = "switch_pair"
     CATEGORY = "😎 SnJake/LoRA"
 
-    # Достаточно lazy-настроек на входах — отдельный хук не обязателен.
-    # Нода читает только выбранную пару, остальные входы не трогает.
+    def check_lazy_status(self, select, **kwargs):
+        # `select` - это простое число (int), а не список. Убираем [0].
+        selected_index = select
+        
+        needed_model = f"model_{selected_index}"
+        needed_clip = f"clip_{selected_index}"
+        
+        return [needed_model, needed_clip]
 
     def switch_pair(self, select, pairs, **kwargs):
-        idx = int(select)
-        total = int(pairs)
+        # `select` - это простое число (int), а не список. Убираем [0].
+        selected_index = select
+        
+        model_key = f"model_{selected_index}"
+        clip_key = f"clip_{selected_index}"
 
-        if total < 1:
-            raise ValueError("[LoraSwitchDynamic] pairs < 1")
-        if idx < 1:
-            idx = 1
-        if idx > total:
-            idx = total
+        selected_model = kwargs.get(model_key)
+        selected_clip = kwargs.get(clip_key)
+        
+        print(f"[LoraSwitchDynamic] Switching to pair #{selected_index}. Passing model: {type(selected_model)}, clip: {type(selected_clip)}")
 
-        m_key = f"model_{idx}"
-        c_key = f"clip_{idx}"
-
-        model = kwargs.get(m_key, None)
-        clip = kwargs.get(c_key, None)
-
-        if model is None or clip is None:
-            raise ValueError(
-                f"[LoraSwitchDynamic] Пара #{idx} не подключена: {m_key}={type(model)}, {c_key}={type(clip)}"
-            )
-
-        print(f"[LoraSwitchDynamic] pair #{idx} -> model:{type(model)}, clip:{type(clip)}")
-        return (model, clip)
+        return (selected_model, selected_clip)
