@@ -1,5 +1,4 @@
-// lora_switch.js
-import { app } from "../../../scripts/app.js";
+import { app } from "/scripts/app.js";
 
 app.registerExtension({
   name: "SnJake.LoraSwitchDynamic.Handler",
@@ -13,22 +12,23 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       origOnNodeCreated?.apply(this, arguments);
 
+      // Визуальные мелочи
       this.color = "#2e2e36";
       this.bgcolor = "#41414a";
 
-      // Гарантируем сохранение значений виджетов
+      // Сохраняем состояние виджетов в граф
       this.serialize_widgets = true;
 
-      // Автообновление входов при создании
+      // Автоинициализация входов после создания
       queueMicrotask(() => this.updateInputs());
 
-      // Подписка на изменение pairs
+      // Автосинхронизация при изменении pairs
       const pairsWidget = this.widgets?.find((w) => w.name === "pairs");
       if (pairsWidget && !pairsWidget.__ls_bound) {
         pairsWidget.__ls_bound = true;
-        const origCallback = pairsWidget.callback;
+        const orig = pairsWidget.callback;
         pairsWidget.callback = (v) => {
-          origCallback?.(v);
+          orig?.(v);
           this.updateInputs();
           app.graph.setDirtyCanvas(true, true);
         };
@@ -36,9 +36,8 @@ app.registerExtension({
     };
 
     nodeType.prototype.onConfigure = function (info) {
-      // Восстановление динамических входов после загрузки графа
       const res = origOnConfigure?.apply(this, arguments);
-      // Ждём, пока Comfy восстановит виджеты/ссылки
+      // Восстановление входов после загрузки/перезагрузки страницы
       queueMicrotask(() => this.updateInputs());
       return res;
     };
@@ -47,28 +46,24 @@ app.registerExtension({
       const pairsWidget = this.widgets?.find((w) => w.name === "pairs");
       const targetPairs = Math.max(1, Math.min(99, pairsWidget ? Number(pairsWidget.value) : 6));
 
-      // Считаем текущие model_/clip_ входы
-      const current = (this.inputs || []).filter(
+      const cur = (this.inputs || []).filter(
         (i) => i?.name?.startsWith("model_") || i?.name?.startsWith("clip_")
       );
-      const currentPairs = Math.floor(current.length / 2);
+      const currentPairs = Math.floor(cur.length / 2);
 
       if (targetPairs === currentPairs) return;
 
-      // Добавление
       if (targetPairs > currentPairs) {
         for (let i = currentPairs + 1; i <= targetPairs; i++) {
-          // Сохраняем порядок: сначала model_i, затем clip_i — стабильные slot-индексы
           this.addInput(`model_${i}`, "MODEL");
           this.addInput(`clip_${i}`, "CLIP");
         }
       } else {
-        // Удаление с конца, чтобы не ломать индексацию уже существующих линков
         for (let i = currentPairs; i > targetPairs; i--) {
-          const clipIdx = this.inputs.findIndex((inp) => inp.name === `clip_${i}`);
-          if (clipIdx !== -1) this.removeInput(clipIdx);
-          const modelIdx = this.inputs.findIndex((inp) => inp.name === `model_${i}`);
-          if (modelIdx !== -1) this.removeInput(modelIdx);
+          const ci = this.inputs.findIndex((inp) => inp.name === `clip_${i}`);
+          if (ci !== -1) this.removeInput(ci);
+          const mi = this.inputs.findIndex((inp) => inp.name === `model_${i}`);
+          if (mi !== -1) this.removeInput(mi);
         }
       }
 
