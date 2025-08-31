@@ -2,6 +2,7 @@ class LoraSwitchDynamic:
     @classmethod
     def INPUT_TYPES(cls):
         optional_inputs = {}
+        # объявляем до 99 пар, чтобы UI и бэкенд были согласованы
         for i in range(1, 100):
             optional_inputs[f"model_{i}"] = ("MODEL", {"lazy": True})
             optional_inputs[f"clip_{i}"] = ("CLIP", {"lazy": True})
@@ -19,18 +20,19 @@ class LoraSwitchDynamic:
     FUNCTION = "switch_pair"
     CATEGORY = "😎 SnJake/LoRA"
 
-    def check_lazy_status(self, select, **kwargs):
-        idx = int(select)
-        if idx < 1 or idx > 99:
-            return []
-        return [f"model_{idx}", f"clip_{idx}"]
+    # Достаточно lazy-настроек на входах — отдельный хук не обязателен.
+    # Нода читает только выбранную пару, остальные входы не трогает.
 
     def switch_pair(self, select, pairs, **kwargs):
         idx = int(select)
+        total = int(pairs)
+
+        if total < 1:
+            raise ValueError("[LoraSwitchDynamic] pairs < 1")
         if idx < 1:
             idx = 1
-        if idx > int(pairs):
-            idx = int(pairs)
+        if idx > total:
+            idx = total
 
         m_key = f"model_{idx}"
         c_key = f"clip_{idx}"
@@ -40,8 +42,7 @@ class LoraSwitchDynamic:
 
         if model is None or clip is None:
             raise ValueError(
-                f"[LoraSwitchDynamic] Пара #{idx} не подключена: "
-                f"{m_key}={type(model)}, {c_key}={type(clip)}"
+                f"[LoraSwitchDynamic] Пара #{idx} не подключена: {m_key}={type(model)}, {c_key}={type(clip)}"
             )
 
         print(f"[LoraSwitchDynamic] pair #{idx} -> model:{type(model)}, clip:{type(clip)}")
