@@ -1,4 +1,4 @@
-# SnJake's Custom Nodes for ComfyUI
+# Custom Nodes for ComfyUI
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
@@ -111,6 +111,7 @@ And also some other nodes that are not on the list.
 ## 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
 
 
 
