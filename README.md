@@ -4,8 +4,8 @@
 ![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Made for ComfyUI](https://img.shields.io/badge/Made%20for-ComfyUI-blueviolet)
 
-⚠️ Disclaimer
-The code is written "as is" for fun and experimentation. It may be unstable and is not intended for production.
+**⚠️ Disclaimer**
+**The code is written "as is" for fun and experimentation. It may be unstable and is not intended for production.**
 
 This GitHub repository is a curated collection of custom ComfyUI nodes generated with the help of neural networks. They’ve been tailored to fit my personal workflow and have proven to be reliable and functional in practice.
 
@@ -111,5 +111,6 @@ And also some other nodes that are not on the list.
 ## 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
 
 
