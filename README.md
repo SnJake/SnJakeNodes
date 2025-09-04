@@ -7,7 +7,7 @@
 **⚠️ Disclaimer**
 **The code is written "as is" for fun and experimentation. It may be unstable and is not intended for production.**
 
-This GitHub repository is a curated collection of custom ComfyUI nodes generated with the help of neural networks. They’ve been tailored to fit my personal workflow and have proven to be reliable and functional in practice.
+This GitHub repository is a curated collection of ComfyUI nodes powered by neural networks. They’ve been tailored to fit my personal workflow and have proven to be reliable and functional in practice.
 
 Some nodes may have been influenced by code structures from other public repositories, which were used as reference material during the generation process. Unfortunately, I no longer recall the exact sources.  🤷
 
@@ -25,7 +25,7 @@ You can install this node pack by following this method:
     # Example for Windows
     cd D:\ComfyUI\custom_nodes\
     
-    # Example for Linux/macOS
+    # Example for Linux
     cd ~/ComfyUI/custom_nodes/
     ```
 
@@ -111,6 +111,7 @@ And also some other nodes that are not on the list.
 ## 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
 
 
 
