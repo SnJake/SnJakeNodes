@@ -64,11 +64,6 @@ const SCHEMES = {
         bgcolor: "#1a1503",
         titleText: "#ffeaa6"
     },
-    jpg: {           // Серебро
-        color: "#a7a7a7",
-        bgcolor: "#3a3a3a",
-        titleText: "#f4f3ee"
-    },
 };
 
 // Перекрытия по категориям
@@ -83,8 +78,7 @@ const CATEGORY_SCHEMES = {
     "😎 SnJake/XY Plot": SCHEMES.xyplot,
     "😎 SnJake/LoRA": SCHEMES.lora,
     "😎 SnJake/Detailer": SCHEMES.detailer,
-    "😎 SnJake/YOLO": SCHEMES.yolo,
-    "😎 SnJake/JPG & Noise Remover": SCHEMES.jpg,
+    "😎 SnJake/YOLO": SCHEMES.yolo
 };
 
 function pickScheme(node) {
