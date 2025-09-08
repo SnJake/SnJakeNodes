@@ -1,15 +1,6 @@
 try:
     from .utils_snjake.bislerp_standalone import bislerp as standalone_bislerp
 except ImportError:
-    # Если узел находится в подпапке пакета, а bislerp_standalone.py в корне пакета
-    # (например, ComfyUI/custom_nodes/MyNodePack/bislerp_standalone.py
-    # и ComfyUI/custom_nodes/MyNodePack/nodes/my_image_node.py)
-    # тогда импорт может потребовать настройки sys.path или более явного указания пакета.
-    # Для простоты, предполагаем, что он в той же папке или в ComfyUI/custom_nodes/ (если вы разрабатываете вне пакета)
-    # В этом случае, если он лежит прямо в custom_nodes, то:
-    # from bislerp_standalone import bislerp as standalone_bislerp
-    # Однако, правильнее структурировать как пакет.
-    # Для примера ниже, я буду использовать from .bislerp_standalone
     print("Warning: Could not import bislerp_standalone. Ensure it's in the correct path.")
     standalone_bislerp = None
 
@@ -125,4 +116,5 @@ class ImageResizeNode:
             output_tensor = torch.from_numpy(image_resized_np).unsqueeze(0).to(image.device)
 
         print(f"Resized image tensor (BHWC) shape: {output_tensor.shape}")
+
         return (output_tensor,)
