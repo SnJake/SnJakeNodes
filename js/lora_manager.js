@@ -50,7 +50,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
   const breadcrumb = $el("div", { style: { fontSize: "12px", opacity: .85 }});
   const searchInput = $el("input", {
     type: "search",
-    placeholder: "Поиск в текущей папке…",
+    placeholder: "Search in current folder…",
     style: { width: "240px" },
     oninput: () => renderGrid()
   });
@@ -373,6 +373,7 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
 
 
 
