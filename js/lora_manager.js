@@ -75,7 +75,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
     counter, // <-- добавили
     $el("div", { style: { display: "flex", gap: "8px", justifySelf: "end" }}, [
       $el("button", { innerText: "Cancel", onclick: () => document.body.removeChild(overlay) }),
-      $el("button", { innerText: "Safe", style: { fontWeight: 600 }, onclick: () => { onSave(Array.from(selectedPaths)); document.body.removeChild(overlay); }})
+      $el("button", { innerText: "Save", style: { fontWeight: 600 }, onclick: () => { onSave(Array.from(selectedPaths)); document.body.removeChild(overlay); }})
     ])
   ]);
 
@@ -373,4 +373,5 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
 
