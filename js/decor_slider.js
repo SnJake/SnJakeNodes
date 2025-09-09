@@ -1,6 +1,8 @@
 import { app } from "../../../scripts/app.js";
 // Toggle to enable/disable planar waves visual
 const SJ_WAVES_ENABLED = false;
+// Toggle to enable/disable edge pulses (from sides to center)
+const SJ_EDGE_PULSE_ENABLED = false;
 
 // Universal decorative silver slider for all SnJake nodes (titles prefixed with "😎")
 app.registerExtension({
@@ -54,12 +56,19 @@ app.registerExtension({
             // Theme-aware colors derived from node scheme (auto_colors)
             const theme = computeDecorColors(this);
 
-            // Draw track
+            // Draw track with edge-to-center gradient and a subtle outline
             ctx.save();
-            ctx.globalAlpha = 0.35;
             roundRect(ctx, x, y, trackW, trackH, radius);
-            ctx.fillStyle = theme.track;
+            const trackGrad = ctx.createLinearGradient(x, y, x + trackW, y);
+            trackGrad.addColorStop(0.0, theme.trackEdge);
+            trackGrad.addColorStop(0.5, theme.trackCenter);
+            trackGrad.addColorStop(1.0, theme.trackEdge);
+            ctx.fillStyle = trackGrad;
             ctx.fill();
+            // subtle inner stroke to make it a bit more noticeable
+            ctx.strokeStyle = theme.trackStroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
             ctx.restore();
 
             // Optional planar waves (disabled by default)
@@ -73,15 +82,21 @@ app.registerExtension({
                 drawWaves(ctx, this, x, y, trackW, trackH, theme, dt);
             }
 
+            // Edge-to-center pulse from both sides (rare and gentle)
+            if (SJ_EDGE_PULSE_ENABLED) {
+                handleEdgePulses(this, now, x, y, trackW, trackH, ctx, theme);
+            }
+
             // Slight pulsing of the thumb (subtle)
             const pulse = 1 + 0.06 * Math.sin(now * 0.9 + (this.__sjake_phase_offset || 0));
             const thumbH = (trackH + 1) * pulse;
             const thumbY = y - 0.5 - (thumbH - (trackH + 1)) * 0.5;
 
-            // Thumb with gradient based on theme
+            // Thumb with edge-to-center gradient based on theme
             const grad = ctx.createLinearGradient(thumbX, y, thumbX + thumbW, y);
-            grad.addColorStop(0.0, theme.thumbLight);
-            grad.addColorStop(1.0, theme.thumbDark);
+            grad.addColorStop(0.0, theme.thumbEdge);
+            grad.addColorStop(0.5, theme.thumbCenter);
+            grad.addColorStop(1.0, theme.thumbEdge);
 
             // Shadow + fill
             ctx.save();
@@ -152,21 +167,25 @@ function computeDecorColors(node) {
     const base = safeColor(node?.color, "#2e2e36");
     const title = safeColor(node?.constructor?.title_text_color, "#e5e9f0");
 
-    // Track is a soft blend toward background
-    const track = mixHex(bg, base, 0.25, 0.5); // mix + reduce alpha
+    // Track gradient (edge -> center -> edge) derived from bg/base with slight alpha
+    const trackEdge = setAlphaHex(lightenHex(mixHex(base, title, 0.25), 0.08), 0.75);
+    const trackCenter = setAlphaHex(mixHex(bg, base, 0.35), 0.55);
+    const trackStroke = setAlphaHex(darkenHex(base, 0.35), 0.45);
 
-    // Thumb gradient: lighter to darker along movement
-    const thumbLight = lightenHex(base, 0.28);
-    const thumbDark = darkenHex(base, 0.12);
+    // Thumb gradient (edge -> center -> edge): edges a bit lighter, center slightly darker
+    const thumbEdge = lightenHex(base, 0.32);
+    const thumbCenter = darkenHex(base, 0.10);
 
     // Wave color: use title text tint with transparency
     const wave = setAlphaHex(title, 0.22);
     const waveStrong = setAlphaHex(title, 0.35);
 
     return {
-        track,
-        thumbLight,
-        thumbDark,
+        trackEdge,
+        trackCenter,
+        trackStroke,
+        thumbEdge,
+        thumbCenter,
         thumbHighlight: setAlphaHex("#ffffff", 0.35),
         wave,
         waveStrong
@@ -273,4 +292,74 @@ function blendAlpha(rgba, scale) {
     const r = +m[1], g = +m[2], b = +m[3], a = +m[4];
     const na = Math.max(0, Math.min(1, a * scale));
     return `rgba(${r},${g},${b},${na})`;
+}
+
+// ---- Edge pulse system (from sides to center) ----
+function handleEdgePulses(node, now, x, y, w, h, ctx, theme) {
+    // Lazy-init
+    if (!node.__sjake_edge_pulses) node.__sjake_edge_pulses = [];
+    if (node.__sjake_next_sidepulse == null) {
+        node.__sjake_next_sidepulse = now + 5 + Math.random() * 7; // first pulse in 5..12s
+    }
+
+    // Spawn new pulse occasionally (not often)
+    if (now >= node.__sjake_next_sidepulse) {
+        spawnEdgePulse(node, now);
+        node.__sjake_next_sidepulse = now + 6 + Math.random() * 10; // next in 6..16s
+    }
+
+    // Draw existing pulses
+    drawEdgePulses(ctx, node, x, y, w, h, theme, now);
+}
+
+function spawnEdgePulse(node, now) {
+    const duration = 1.8 + Math.random() * 0.6; // seconds for edge->center
+    const ease = 0.85; // ease exponent
+    const amp = 1.0; // base alpha scale
+    const width = 12; // band width in px
+    node.__sjake_edge_pulses.push({ start: now, duration, ease, amp, width });
+    // Cap pulses
+    if (node.__sjake_edge_pulses.length > 3) node.__sjake_edge_pulses.shift();
+}
+
+function drawEdgePulses(ctx, node, x, y, w, h, theme, now) {
+    const list = node.__sjake_edge_pulses || [];
+    if (!list.length) return;
+    const cx = x + w * 0.5;
+
+    ctx.save();
+    roundRect(ctx, x, y, w, h, 3);
+    ctx.clip();
+
+    for (let i = list.length - 1; i >= 0; i--) {
+        const p = list[i];
+        const t = (now - p.start) / p.duration;
+        if (t >= 1) { list.splice(i, 1); continue; }
+        const et = Math.pow(t, p.ease); // ease-in
+
+        const bandW = p.width * (1 - 0.2 * et);
+        const leftX = x + et * (w * 0.5 - bandW * 0.5);
+        const rightX = x + w - et * (w * 0.5 - bandW * 0.5) - bandW;
+
+        // Color uses title tint but stronger near start, fading toward center
+        const alpha = (1 - t) * 0.38 * p.amp;
+        const col = blendAlpha(theme.waveStrong, alpha / 0.35); // normalize vs waveStrong base
+
+        // Left band
+        let gL = ctx.createLinearGradient(leftX, 0, leftX + bandW, 0);
+        gL.addColorStop(0.0, "rgba(0,0,0,0)");
+        gL.addColorStop(0.5, col);
+        gL.addColorStop(1.0, "rgba(0,0,0,0)");
+        ctx.fillStyle = gL;
+        ctx.fillRect(leftX, y - 2, bandW, h + 4);
+
+        // Right band
+        let gR = ctx.createLinearGradient(rightX, 0, rightX + bandW, 0);
+        gR.addColorStop(0.0, "rgba(0,0,0,0)");
+        gR.addColorStop(0.5, col);
+        gR.addColorStop(1.0, "rgba(0,0,0,0)");
+        ctx.fillStyle = gR;
+        ctx.fillRect(rightX, y - 2, bandW, h + 4);
+    }
+    ctx.restore();
 }
