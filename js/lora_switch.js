@@ -19,10 +19,6 @@ app.registerExtension({
                 // Теперь 'this' — это наш экземпляр ноды на холсте.
                 // Здесь мы можем безопасно менять его свойства и добавлять виджеты.
 
-                // Устанавливаем цвет ноды
-                this.color = "#2e2e36";
-                this.bgcolor = "#41414a";
-
                 // Добавляем кнопку "Update Inputs"
                 this.addWidget("button", "Update Inputs", null, () => {
                     this.updateInputs();
@@ -72,3 +68,4 @@ app.registerExtension({
         }
     }
 });
+
