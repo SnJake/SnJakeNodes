@@ -142,7 +142,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
     if (currentDir !== "/") {
       const back = cardBase({ onclick: ()=> loadDir(parentPath(currentDir)) });
       const icon = $el("div", { innerText: "…", style: { fontSize: Math.round(ITEM_W * 0.6) + "px", lineHeight: 1, paddingTop: "8px" }});
-      const name = $el("div", { innerText: "Назад", style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }});
+      const name = $el("div", { innerText: "Back", style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }});
       back.appendChild(icon); back.appendChild(name);
       grid.appendChild(back);
     }
@@ -373,5 +373,6 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
 
 
