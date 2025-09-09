@@ -12,6 +12,7 @@ dependencies = [
   "scikit-learn",
   "opencv-python",
   "Pillow",
+  "ultralytics",
 ]
 
 [project.optional-dependencies]
@@ -25,3 +26,4 @@ Homepage = "https://github.com/SnJake/SnJakeNodes"
 
 [tool.comfyui-node-registry]
 publisher = "SnJake"
+

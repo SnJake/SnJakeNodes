@@ -50,7 +50,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
   const breadcrumb = $el("div", { style: { fontSize: "12px", opacity: .85 }});
   const searchInput = $el("input", {
     type: "search",
-    placeholder: "Поиск в текущей папке…",
+    placeholder: "Search in current folder…",
     style: { width: "240px" },
     oninput: () => renderGrid()
   });
@@ -62,7 +62,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
       renderGrid();
     }
   });
-  const scaleLabel = $el("span", { innerText: "Масштаб", style: { fontSize: "12px", opacity: .85 } });
+  const scaleLabel = $el("span", { innerText: "Scale", style: { fontSize: "12px", opacity: .85 } });
   const counter = $el("div", { style: { fontSize: "12px", opacity: .85, justifySelf: "end" }});
 
   const header = $el("div", {
@@ -74,8 +74,8 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
     $el("div", {}, [searchInput]),
     counter, // <-- добавили
     $el("div", { style: { display: "flex", gap: "8px", justifySelf: "end" }}, [
-      $el("button", { innerText: "Отмена", onclick: () => document.body.removeChild(overlay) }),
-      $el("button", { innerText: "Сохранить", style: { fontWeight: 600 }, onclick: () => { onSave(Array.from(selectedPaths)); document.body.removeChild(overlay); }})
+      $el("button", { innerText: "Cancel", onclick: () => document.body.removeChild(overlay) }),
+      $el("button", { innerText: "Save", style: { fontWeight: 600 }, onclick: () => { onSave(Array.from(selectedPaths)); document.body.removeChild(overlay); }})
     ])
   ]);
 
@@ -98,7 +98,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
   function updateCounter() {
     const d = currentDirs?.length || 0;
     const f = currentFiles?.length || 0;
-    counter.innerText = `Папок: ${d} · Файлов: ${f} · Всего: ${d + f}`;
+    counter.innerText = `Folders: ${d} · Files: ${f} · Total: ${d + f}`;
   }
 
   function renderBreadcrumb() {
@@ -142,7 +142,7 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
     if (currentDir !== "/") {
       const back = cardBase({ onclick: ()=> loadDir(parentPath(currentDir)) });
       const icon = $el("div", { innerText: "…", style: { fontSize: Math.round(ITEM_W * 0.6) + "px", lineHeight: 1, paddingTop: "8px" }});
-      const name = $el("div", { innerText: "Назад", style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }});
+      const name = $el("div", { innerText: "Back", style: { fontSize: "11px", padding: "6px", textAlign: "center", width: "100%" }});
       back.appendChild(icon); back.appendChild(name);
       grid.appendChild(back);
     }
@@ -233,7 +233,7 @@ function ensureDynamicStrengthsBuilt(node) {
   const alreadyBuilt = node.widgets?.some(w => w._isLoraStrengthWidget);
   if (stack.length > 0 && !alreadyBuilt) {
     rebuildStrengthWidgets(node);
-    const btn = node.widgets?.find(w => w.type === "button" && w.name === "Открыть менеджер");
+    const btn = node.widgets?.find(w => w.type === "button" && w.name === "Open Manager");
     moveWidgetToEnd(node, btn);
     node.setDirtyCanvas(true, true);
   }
@@ -259,7 +259,7 @@ app.registerExtension({
       if (!jsonW) console.error("LoRAManager: hidden lora_stack_json not found");
 
       // Добавляем кнопку менеджера
-      const btn = this.addWidget("button", "Открыть менеджер", null, () => {
+      const btn = this.addWidget("button", "Open Manager", null, () => {
         const stack = parseStack(jsonW?.value);
         const selected = new Set(stack.map(x => x.path));
         const filter = dirW ? dirW.value : "/";
@@ -373,3 +373,7 @@ function moveWidgetToEnd(node, widget) {
 }
 
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+
+
+
