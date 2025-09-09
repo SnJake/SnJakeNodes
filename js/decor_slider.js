@@ -1,4 +1,6 @@
 import { app } from "../../../scripts/app.js";
+// Toggle to enable/disable planar waves visual
+const SJ_WAVES_ENABLED = false;
 
 // Universal decorative silver slider for all SnJake nodes (titles prefixed with "😎")
 app.registerExtension({
@@ -19,6 +21,9 @@ app.registerExtension({
         const prevOnRemoved = node.onRemoved?.bind(node);
 
         node.__sjake_phase_offset = Math.random() * Math.PI * 2;
+        node.__sjake_waves = [];
+        node.__sjake_last_time = performance.now() / 1000;
+        node.__sjake_next_pulse = node.__sjake_last_time + 2 + Math.random() * 4; // rare pulses
 
         node.onDrawForeground = function (ctx) {
             // Call original foreground drawing first
@@ -40,42 +45,61 @@ app.registerExtension({
             const trackW = Math.max(0, w - pad * 2);
 
             // Time-based position (ping-pong 0..1)
-            const t = (performance.now() / 1000) * 1.2 + (this.__sjake_phase_offset || 0);
+            const now = performance.now() / 1000;
+            const t = now * 1.2 + (this.__sjake_phase_offset || 0);
             const pingpong = 0.5 * (1 + Math.sin(t));
             const thumbW = Math.max(16, Math.min(28, trackW * 0.2));
             const thumbX = x + pingpong * (trackW - thumbW);
+
+            // Theme-aware colors derived from node scheme (auto_colors)
+            const theme = computeDecorColors(this);
 
             // Draw track
             ctx.save();
             ctx.globalAlpha = 0.35;
             roundRect(ctx, x, y, trackW, trackH, radius);
-            ctx.fillStyle = "#777a84";
+            ctx.fillStyle = theme.track;
             ctx.fill();
             ctx.restore();
 
-            // Silver thumb with subtle gradient
+            // Optional planar waves (disabled by default)
+            if (SJ_WAVES_ENABLED) {
+                const dt = Math.min(0.1, Math.max(0, now - (this.__sjake_last_time || now)));
+                this.__sjake_last_time = now;
+                if (now >= (this.__sjake_next_pulse || now)) {
+                    spawnWaves(this, thumbX + thumbW * 0.5, x, x + trackW, theme);
+                    this.__sjake_next_pulse = now + 3 + Math.random() * 4; // next pulse in 3..7s
+                }
+                drawWaves(ctx, this, x, y, trackW, trackH, theme, dt);
+            }
+
+            // Slight pulsing of the thumb (subtle)
+            const pulse = 1 + 0.06 * Math.sin(now * 0.9 + (this.__sjake_phase_offset || 0));
+            const thumbH = (trackH + 1) * pulse;
+            const thumbY = y - 0.5 - (thumbH - (trackH + 1)) * 0.5;
+
+            // Thumb with gradient based on theme
             const grad = ctx.createLinearGradient(thumbX, y, thumbX + thumbW, y);
-            grad.addColorStop(0.0, "#bfc2c9");
-            grad.addColorStop(0.5, "#f3f4f7");
-            grad.addColorStop(1.0, "#a7aab3");
+            grad.addColorStop(0.0, theme.thumbLight);
+            grad.addColorStop(1.0, theme.thumbDark);
 
             // Shadow + fill
             ctx.save();
             ctx.shadowColor = "rgba(0,0,0,0.25)";
             ctx.shadowBlur = 2;
             ctx.shadowOffsetY = 1;
-            roundRect(ctx, thumbX, y - 0.5, thumbW, trackH + 1, radius);
+            roundRect(ctx, thumbX, thumbY, thumbW, thumbH, radius);
             ctx.fillStyle = grad;
             ctx.fill();
             ctx.restore();
 
-            // Top highlight line for a metallic feel
+            // Top highlight line for a subtle sheen
             ctx.save();
             ctx.globalAlpha = 0.35;
             ctx.beginPath();
-            ctx.moveTo(thumbX + 1, y + 1);
-            ctx.lineTo(thumbX + thumbW - 1, y + 1);
-            ctx.strokeStyle = "#ffffff";
+            ctx.moveTo(thumbX + 1, thumbY + 1);
+            ctx.lineTo(thumbX + thumbW - 1, thumbY + 1);
+            ctx.strokeStyle = theme.thumbHighlight;
             ctx.lineWidth = 1;
             ctx.stroke();
             ctx.restore();
@@ -121,3 +145,132 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
+// ---- Theming helpers (derived from auto_colors scheme) ----
+function computeDecorColors(node) {
+    // Prefer colors already applied by AutoColors if present
+    const bg = safeColor(node?.bgcolor, "#41414a");
+    const base = safeColor(node?.color, "#2e2e36");
+    const title = safeColor(node?.constructor?.title_text_color, "#e5e9f0");
+
+    // Track is a soft blend toward background
+    const track = mixHex(bg, base, 0.25, 0.5); // mix + reduce alpha
+
+    // Thumb gradient: lighter to darker along movement
+    const thumbLight = lightenHex(base, 0.28);
+    const thumbDark = darkenHex(base, 0.12);
+
+    // Wave color: use title text tint with transparency
+    const wave = setAlphaHex(title, 0.22);
+    const waveStrong = setAlphaHex(title, 0.35);
+
+    return {
+        track,
+        thumbLight,
+        thumbDark,
+        thumbHighlight: setAlphaHex("#ffffff", 0.35),
+        wave,
+        waveStrong
+    };
+}
+
+function safeColor(v, fallback) {
+    if (typeof v === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) return v;
+    return fallback;
+}
+
+function hexToRgb(hex) {
+    hex = hex.replace(/^#/, "");
+    if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+    const int = parseInt(hex, 16);
+    return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
+}
+function rgbToHex(r, g, b) {
+    const to = (n) => Math.max(0, Math.min(255, n | 0)).toString(16).padStart(2, "0");
+    return `#${to(r)}${to(g)}${to(b)}`;
+}
+function mixHex(a, b, t, alpha = 1) {
+    const A = hexToRgb(a), B = hexToRgb(b);
+    const r = A.r + (B.r - A.r) * t;
+    const g = A.g + (B.g - A.g) * t;
+    const bl = A.b + (B.b - A.b) * t;
+    const base = rgbToHex(r, g, bl);
+    return setAlphaHex(base, alpha);
+}
+function lightenHex(hex, amt) {
+    const c = hexToRgb(hex);
+    const k = amt || 0;
+    return rgbToHex(
+        c.r + (255 - c.r) * k,
+        c.g + (255 - c.g) * k,
+        c.b + (255 - c.b) * k
+    );
+}
+function darkenHex(hex, amt) {
+    const c = hexToRgb(hex);
+    const k = amt || 0;
+    return rgbToHex(
+        c.r * (1 - k),
+        c.g * (1 - k),
+        c.b * (1 - k)
+    );
+}
+function setAlphaHex(hex, alpha) {
+    const { r, g, b } = hexToRgb(hex);
+    const a = Math.max(0, Math.min(1, alpha));
+    // Return rgba() for canvas fillStyle support with alpha
+    return `rgba(${r},${g},${b},${a})`;
+}
+
+// ---- Wave system ----
+function spawnWaves(node, centerX, minX, maxX, theme) {
+    // Two planar wavefronts moving left and right from the thumb
+    const speed = 80 + Math.random() * 60; // px/s
+    const width = 8; // visual width of wavefront
+    const life = 2.2; // seconds
+    const now = performance.now() / 1000;
+    const base = { start: now, x: centerX, speed, width, life, color: theme.wave, strong: theme.waveStrong };
+    node.__sjake_waves.push({ ...base, dir: -1, minX, maxX });
+    node.__sjake_waves.push({ ...base, dir: +1, minX, maxX });
+    // Cap number of waves to avoid buildup
+    if (node.__sjake_waves.length > 12) node.__sjake_waves.splice(0, node.__sjake_waves.length - 12);
+}
+
+function drawWaves(ctx, node, x, y, w, h, theme, dt) {
+    const now = performance.now() / 1000;
+    const waves = node.__sjake_waves || [];
+    for (let i = waves.length - 1; i >= 0; i--) {
+        const wave = waves[i];
+        const t = now - wave.start;
+        if (t > wave.life) { waves.splice(i, 1); continue; }
+        const eased = t / wave.life;
+        const alphaScale = 1 - eased;
+        const curX = wave.x + wave.dir * wave.speed * t;
+        if (curX < wave.minX - 12 || curX > wave.maxX + 12) { waves.splice(i, 1); continue; }
+
+        // Draw a soft vertical stripe (planar wavefront)
+        const stripeW = wave.width * (1 + 0.2 * eased);
+        const gx0 = curX - stripeW * 0.5;
+        const gx1 = curX + stripeW * 0.5;
+        const grad = ctx.createLinearGradient(gx0, 0, gx1, 0);
+        grad.addColorStop(0.0, "rgba(0,0,0,0)");
+        grad.addColorStop(0.5, blendAlpha(wave.strong, alphaScale));
+        grad.addColorStop(1.0, "rgba(0,0,0,0)");
+
+        ctx.save();
+        ctx.beginPath();
+        roundRect(ctx, x, y, w, h, 3);
+        ctx.clip();
+        ctx.fillStyle = grad;
+        ctx.fillRect(gx0, y - 2, stripeW, h + 4);
+        ctx.restore();
+    }
+}
+
+function blendAlpha(rgba, scale) {
+    // rgba(r,g,b,a) -> same r,g,b with a * scale
+    const m = rgba.match(/^rgba\((\d+),(\d+),(\d+),(\d*\.?\d+)\)$/);
+    if (!m) return rgba;
+    const r = +m[1], g = +m[2], b = +m[3], a = +m[4];
+    const na = Math.max(0, Math.min(1, a * scale));
+    return `rgba(${r},${g},${b},${na})`;
+}
