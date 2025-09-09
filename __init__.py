@@ -63,8 +63,6 @@ from .mask_utils import ResizeAllMasks, BlurImageByMasks, OverlayImageByMasks
 
 from .lora_metadata_parser import LoraMetadataParser
 
-from .teleport_nodes import SnJake_TeleportSet, SnJake_TeleportGet
-
 from .switch_nodes import SnJakeAnySwitch, SnJakeImageSwitch, SnJakeMaskSwitch, SnJakeStringSwitch, SnJakeLatentSwitch, SnJakeConditioningSwitch
 
 from .random_node import SnJakeNumberNode
@@ -144,8 +142,6 @@ NODE_CLASS_MAPPINGS = {
     "LoraMetadataParser": LoraMetadataParser,
 
 
-    "SnJake_TeleportSet": SnJake_TeleportSet,
-    "SnJake_TeleportGet": SnJake_TeleportGet,
 
     "SnJakeAnySwitch": SnJakeAnySwitch,
     "SnJakeImageSwitch": SnJakeImageSwitch,
@@ -231,8 +227,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
     "LoraMetadataParser": "😎 LoRA Metadata Parser",
 
-    "SnJake_TeleportSet": "😎 Teleport Set (Sender)",
-    "SnJake_TeleportGet": "😎 Teleport Get (Receiver)",
 
     "SnJakeAnySwitch": "😎 Switch (Any)",
     "SnJakeImageSwitch": "😎 Switch (Image)",
@@ -258,6 +252,7 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
 
 
 
