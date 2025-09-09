@@ -3,14 +3,13 @@ class LoraSwitchDynamic:
     def INPUT_TYPES(cls):
 
         optional_inputs = {}
-        for i in range(1, 7): 
+        for i in range(1, 13): 
             optional_inputs[f"model_{i}"] = ("MODEL", {"lazy": True})
             optional_inputs[f"clip_{i}"] = ("CLIP", {"lazy": True})
 
         return {
             "required": {
-                "select": ("INT", {"default": 1, "min": 1, "max": 99}),
-                "pairs": ("INT", {"default": 6, "min": 1, "max": 99}),
+                "select": ("INT", {"default": 1, "min": 1, "max": 12}),
             },
             "optional": optional_inputs
         }
@@ -29,7 +28,7 @@ class LoraSwitchDynamic:
         
         return [needed_model, needed_clip]
 
-    def switch_pair(self, select, pairs, **kwargs):
+    def switch_pair(self, select, **kwargs):
         # `select` - это простое число (int), а не список. Убираем [0].
         selected_index = select
         
