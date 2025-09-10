@@ -6,11 +6,48 @@ import server
 import folder_paths
 import comfy.sd
 import comfy.utils
+try:
+    from safetensors import safe_open as _safetensors_safe_open
+except Exception:
+    _safetensors_safe_open = None
 
 logger = logging.getLogger("ComfyUI.LoRAManagerWithPreview")
 
 # --- Настройки превью ---
 PREVIEW_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
+
+# Sidecar JSON file name for metadata/description compatibility (Automatic1111-style)
+def _sidecar_json_path(lora_abs_path: str) -> str:
+    base, _ = os.path.splitext(lora_abs_path)
+    return base + ".json"
+
+def _read_json(path: str):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.warning(f"[LoRAManager] failed reading JSON {path}: {e}")
+        return {}
+
+def _write_json(path: str, data: dict):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+def _load_safetensors_metadata(file_abs_path: str):
+    if _safetensors_safe_open is None:
+        return None
+    try:
+        if not file_abs_path.lower().endswith('.safetensors'):
+            return None
+        with _safetensors_safe_open(file_abs_path, framework="pt", device="cpu") as f:
+            return f.metadata() or {}
+    except Exception as e:
+        logger.debug(f"[LoRAManager] safetensors metadata read failed {file_abs_path}: {e}")
+        return None
 
 # ---------- ХЕЛПЕРЫ: поиск подпапок и безопасные пути ----------
 def get_lora_subdirectories_recursive(lora_paths):
@@ -50,7 +87,7 @@ def _is_under_any(base_paths, abs_path):
             return True
     return False
 
-# ---------- HTTP: превью и список LoRA (оставляем, как в твоей версии) ----------
+# ---------- HTTP: превью и список LoRA ----------
 @server.PromptServer.instance.routes.get("/lora_loader_preview/get_preview")
 async def get_lora_preview(request):
     lora_relative_path = request.query.get('lora_path')
@@ -84,6 +121,204 @@ async def get_lora_preview(request):
         return web.FileResponse(preview_filepath_abs, headers={"Content-Type": mime_type})
     except Exception as e:
         logger.error(f"[get_preview] {e}", exc_info=True)
+        return web.Response(status=500, text="Internal server error")
+
+# ---------- HTTP: Get/Save LoRA sidecar info (description + metadata compatibility) ----------
+@server.PromptServer.instance.routes.get("/lora_loader_preview/get_lora_info")
+async def get_lora_info(request):
+    lora_relative_path = request.query.get('lora_path')
+    if not lora_relative_path:
+        return web.Response(status=400, text="Missing lora_path")
+
+    try:
+        lora_abs_path = folder_paths.get_full_path("loras", lora_relative_path)
+        if not lora_abs_path or not os.path.isfile(lora_abs_path):
+            return web.Response(status=404, text="LoRA file not found")
+
+        lora_base_paths = folder_paths.get_folder_paths("loras")
+        if not _is_under_any(lora_base_paths, lora_abs_path):
+            return web.Response(status=403, text="Forbidden")
+
+        base_name = os.path.splitext(os.path.basename(lora_abs_path))[0]
+        lora_dir = os.path.dirname(lora_abs_path)
+
+        # Preview existence
+        preview_exists = False
+        preview_ext = None
+        for ext in PREVIEW_IMAGE_EXTENSIONS:
+            cand = os.path.join(lora_dir, base_name + ext)
+            if os.path.isfile(cand) and _is_under_any(lora_base_paths, cand):
+                preview_exists = True
+                preview_ext = ext
+                break
+
+        import urllib.parse
+        preview_url = None
+        if preview_exists:
+            encoded = urllib.parse.quote(lora_relative_path)
+            preview_url = f"/lora_loader_preview/get_preview?lora_path={encoded}"
+
+        # Sidecar JSON
+        sidecar_path = _sidecar_json_path(lora_abs_path)
+        sidecar = _read_json(sidecar_path)
+
+        # Description resolution order: our namespaced, common keys, safetensors comment
+        description = (
+            (sidecar.get('snjake', {}) or {}).get('description')
+            or sidecar.get('description')
+            or sidecar.get('notes')
+            or sidecar.get('comment')
+        )
+
+        # Metadata from safetensors, if any
+        st_meta = _load_safetensors_metadata(lora_abs_path) or {}
+        # Also expose any sidecar metadata keys for compatibility; don't override safetensors keys
+        merged_meta = dict(sidecar)
+        if 'snjake' in merged_meta:
+            merged_meta.pop('snjake', None)
+        # Merge: safetensors metadata takes precedence
+        merged_meta.update({k: v for k, v in st_meta.items() if k not in merged_meta})
+
+        payload = {
+            "name": os.path.basename(lora_abs_path),
+            "path": lora_relative_path,
+            "preview_exists": preview_exists,
+            "preview_url": preview_url,
+            "description": description or "",
+            "metadata": merged_meta,
+        }
+        return server.web.json_response(payload)
+    except Exception as e:
+        logger.error(f"[get_lora_info] {e}", exc_info=True)
+        return web.Response(status=500, text="Internal server error")
+
+@server.PromptServer.instance.routes.post("/lora_loader_preview/save_lora_info")
+async def save_lora_info(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(status=400, text="Invalid JSON")
+
+    lora_relative_path = (body or {}).get('lora_path')
+    description = (body or {}).get('description')
+    if not lora_relative_path:
+        return web.Response(status=400, text="Missing lora_path")
+
+    try:
+        lora_abs_path = folder_paths.get_full_path("loras", lora_relative_path)
+        if not lora_abs_path or not os.path.isfile(lora_abs_path):
+            return web.Response(status=404, text="LoRA file not found")
+
+        lora_base_paths = folder_paths.get_folder_paths("loras")
+        if not _is_under_any(lora_base_paths, lora_abs_path):
+            return web.Response(status=403, text="Forbidden")
+
+        sidecar_path = _sidecar_json_path(lora_abs_path)
+        sidecar = _read_json(sidecar_path)
+
+        # Update common field and our namespaced field for compatibility
+        if isinstance(description, str):
+            sidecar['description'] = description
+            sn = sidecar.get('snjake') or {}
+            sn['description'] = description
+            sidecar['snjake'] = sn
+
+        # Mark source/version
+        sn = sidecar.get('snjake') or {}
+        sn['source'] = 'SnJake.LoRAManager'
+        sidecar['snjake'] = sn
+
+        _write_json(sidecar_path, sidecar)
+        return server.web.json_response({"ok": True})
+    except Exception as e:
+        logger.error(f"[save_lora_info] {e}", exc_info=True)
+        return web.Response(status=500, text="Internal server error")
+
+@server.PromptServer.instance.routes.post("/lora_loader_preview/upload_lora_preview")
+async def upload_lora_preview(request):
+    import tempfile, time, urllib.parse
+
+    reader = await request.multipart()
+    lora_relative_path = None
+    tmp_file_path = None
+    uploaded_filename = None
+
+    try:
+        field = await reader.next()
+        while field is not None:
+            if field.name == 'lora_path':
+                lora_relative_path = (await field.text()).strip()
+            elif field.name == 'file':
+                uploaded_filename = getattr(field, 'filename', None) or 'preview.png'
+                # Stream to a temp file immediately to avoid draining when moving to next part
+                with tempfile.NamedTemporaryFile(delete=False) as tmpf:
+                    tmp_file_path = tmpf.name
+                    while True:
+                        chunk = await field.read_chunk()
+                        if not chunk:
+                            break
+                        tmpf.write(chunk)
+            field = await reader.next()
+
+        if not lora_relative_path or not tmp_file_path:
+            # Cleanup temp if created
+            if tmp_file_path and os.path.exists(tmp_file_path):
+                try: os.remove(tmp_file_path)
+                except Exception: pass
+            return web.Response(status=400, text="Missing lora_path or file")
+
+        # Validate LoRA path and target directory
+        lora_abs_path = folder_paths.get_full_path("loras", lora_relative_path)
+        if not lora_abs_path or not os.path.isfile(lora_abs_path):
+            try: os.remove(tmp_file_path)
+            except Exception: pass
+            return web.Response(status=404, text="LoRA file not found")
+
+        lora_base_paths = folder_paths.get_folder_paths("loras")
+        if not _is_under_any(lora_base_paths, lora_abs_path):
+            try: os.remove(tmp_file_path)
+            except Exception: pass
+            return web.Response(status=403, text="Forbidden")
+
+        base, _ = os.path.splitext(lora_abs_path)
+
+        # Determine extension from uploaded filename
+        _, ext = os.path.splitext(uploaded_filename)
+        ext = (ext or '').lower()
+        if ext not in PREVIEW_IMAGE_EXTENSIONS:
+            ext = '.png'
+
+        # Remove old previews
+        for pext in PREVIEW_IMAGE_EXTENSIONS:
+            old = base + pext
+            if os.path.isfile(old):
+                try: os.remove(old)
+                except Exception: pass
+
+        # Move temp file into place with correct extension
+        target = base + ext
+        try:
+            os.replace(tmp_file_path, target)
+        except Exception:
+            # Fallback: copy+remove
+            with open(tmp_file_path, 'rb') as src, open(target, 'wb') as dst:
+                while True:
+                    chunk = src.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+            try: os.remove(tmp_file_path)
+            except Exception: pass
+
+        encoded = urllib.parse.quote(lora_relative_path)
+        preview_url = f"/lora_loader_preview/get_preview?lora_path={encoded}&t={int(time.time())}"
+        return server.web.json_response({"ok": True, "preview_url": preview_url})
+    except Exception as e:
+        logger.error(f"[upload_lora_preview] {e}", exc_info=True)
+        # Best-effort cleanup
+        if tmp_file_path and os.path.exists(tmp_file_path):
+            try: os.remove(tmp_file_path)
+            except Exception: pass
         return web.Response(status=500, text="Internal server error")
 
 @server.PromptServer.instance.routes.get("/lora_loader_preview/list_loras")
@@ -322,4 +557,5 @@ class LoRAManagerWithPreview:
                 continue
 
         return (m, c)
+
 
