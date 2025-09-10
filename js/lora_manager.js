@@ -128,7 +128,8 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
         overflow: "hidden",
         background: "var(--comfy-input-bg,#2a2a2a)",
         cursor: "pointer",
-        display: "flex", flexDirection: "column", alignItems: "center"
+        display: "flex", flexDirection: "column", alignItems: "center",
+        position: "relative"
       }
     }, opts));
   }
@@ -170,6 +171,21 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
         }
       });
 
+      // Info button (top-right)
+      const infoBtn = $el("div", {
+        title: "Info",
+        onclick: (e) => { e.stopPropagation(); showLoraInfo(lora); },
+        style: {
+          position: "absolute", top: "6px", right: "6px",
+          width: "22px", height: "22px", borderRadius: "50%",
+          background: "#1e88e5", color: "#fff",
+          fontWeight: 700, fontSize: "14px", lineHeight: "22px",
+          textAlign: "center", boxShadow: "0 0 0 2px rgba(0,0,0,.3)",
+          cursor: "pointer", userSelect: "none"
+        }
+      }, [document.createTextNode("i")]);
+      card.appendChild(infoBtn);
+
       const imgWrap = $el("div", {
         style: { width: "100%", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-color,#1c1c1c)" }
       });
@@ -198,6 +214,100 @@ function buildModal({ initialSelectedPaths = new Set(), directoryFilter = "/", o
     });
 
     updateCounter();
+  }
+
+  function showLoraInfo(lora) {
+    // modal overlay
+    const ov = $el("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center" }});
+    const wrap = $el("div", { style: { width: "760px", maxWidth: "90vw", maxHeight: "82vh", background: "var(--comfy-menu-bg,#222)", border: "1px solid var(--border-color,#444)", borderRadius: "8px", overflow: "hidden", display: "flex", flexDirection: "column" }});
+    const header = $el("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--border-color,#444)" }}, [
+      $el("div", { innerText: lora.name, style: { fontWeight: 600 }}),
+      $el("div", {}, [
+        $el("button", { innerText: "Close", onclick: ()=>{ document.body.removeChild(ov); loadDir(currentDir); }})
+      ])
+    ]);
+
+    // Tabs
+    let activeTab = "desc"; // 'desc' | 'meta'
+    const tabsBar = $el("div", { style: { display: "flex", gap: "8px", padding: "8px 12px", borderBottom: "1px solid var(--border-color,#444)" }});
+    const tabDesc = $el("button", { innerText: "Description", onclick: ()=>switchTab("desc") });
+    const tabMeta = $el("button", { innerText: "Metadata", onclick: ()=>switchTab("meta") });
+    tabsBar.appendChild(tabDesc); tabsBar.appendChild(tabMeta);
+
+    const body = $el("div", { style: { padding: "12px", overflow: "auto", flex: 1 }});
+
+    // Desc tab content
+    const leftBox = $el("div", { style: { width: "200px", minWidth: "200px", height: "200px", background: "#111", display: "flex", alignItems: "center", justifyContent: "center", border: "1px dashed #555", borderRadius: "6px", position: "relative" }});
+    const imgEl = new Image(); imgEl.style.maxWidth = "100%"; imgEl.style.maxHeight = "100%"; imgEl.style.objectFit = "contain";
+    const placeholder = $el("div", { innerText: "Click to add image", style: { fontSize: "12px", opacity: .8 }});
+    const fileInput = $el("input", { type: "file", accept: ".png,.jpg,.jpeg,.webp,.gif", style: { display: "none" }, onchange: async (e)=>{
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      const fd = new FormData();
+      fd.append('lora_path', lora.path);
+      fd.append('file', f);
+      const r = await fetch('/lora_loader_preview/upload_lora_preview', { method: 'POST', body: fd });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.preview_url) { imgEl.src = j.preview_url; renderImageBox(true); }
+      }
+    }});
+    leftBox.addEventListener('click', ()=> fileInput.click());
+    leftBox.appendChild(fileInput);
+
+    function renderImageBox(has) {
+      leftBox.innerHTML = "";
+      leftBox.appendChild(fileInput);
+      if (has && imgEl.src) leftBox.appendChild(imgEl); else leftBox.appendChild(placeholder);
+    }
+
+    const descBox = $el("div", { style: { display: "flex", gap: "12px" }});
+    descBox.appendChild(leftBox);
+    const descRight = $el("div", { style: { flex: 1, display: "flex", flexDirection: "column", gap: "8px" }});
+    const descLabel = $el("div", { innerText: "Description", style: { fontSize: "12px", opacity: .85 }});
+    const descInput = $el("textarea", { style: { width: "100%", height: "180px", resize: "vertical" }});
+    const saveRow = $el("div", { style: { display: "flex", gap: "8px", justifyContent: "flex-end" }}, [
+      $el("button", { innerText: "Save", style: { fontWeight: 600 }, onclick: async ()=>{
+        const r = await fetch('/lora_loader_preview/save_lora_info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lora_path: lora.path, description: descInput.value }) });
+        if (r.ok) {
+          // keep modal open; user can close manually
+        }
+      }})
+    ]);
+    descRight.appendChild(descLabel);
+    descRight.appendChild(descInput);
+    descRight.appendChild(saveRow);
+    descBox.appendChild(descRight);
+
+    // Meta tab content
+    const metaWrap = $el("div", { style: { display: "block" }});
+    const metaPre = $el("pre", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "12px" }});
+    metaWrap.appendChild(metaPre);
+
+    function switchTab(tab) {
+      activeTab = tab;
+      tabDesc.disabled = (tab === 'desc');
+      tabMeta.disabled = (tab === 'meta');
+      body.innerHTML = "";
+      if (tab === 'desc') body.appendChild(descBox); else body.appendChild(metaWrap);
+    }
+
+    wrap.appendChild(header);
+    wrap.appendChild(tabsBar);
+    wrap.appendChild(body);
+    ov.appendChild(wrap);
+    document.body.appendChild(ov);
+
+    // Load info
+    fetch(`/lora_loader_preview/get_lora_info?lora_path=${encodeURIComponent(lora.path)}`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(info => {
+        if (info.preview_url) { imgEl.src = info.preview_url; renderImageBox(true); }
+        else { renderImageBox(false); }
+        descInput.value = info.description || "";
+        try { metaPre.innerText = JSON.stringify(info.metadata || {}, null, 2); } catch { metaPre.innerText = "{}"; }
+      })
+      .catch(() => { renderImageBox(false); descInput.value = ""; metaPre.innerText = "{}"; })
+      .finally(()=> switchTab('desc'));
   }
 
   function loadDir(dir) {
