@@ -87,7 +87,7 @@ def _is_under_any(base_paths, abs_path):
             return True
     return False
 
-# ---------- HTTP: превью и список LoRA (оставляем, как в твоей версии) ----------
+# ---------- HTTP: превью и список LoRA ----------
 @server.PromptServer.instance.routes.get("/lora_loader_preview/get_preview")
 async def get_lora_preview(request):
     lora_relative_path = request.query.get('lora_path')
@@ -531,4 +531,5 @@ class LoRAManagerWithPreview:
                 continue
 
         return (m, c)
+
 
