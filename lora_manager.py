@@ -87,7 +87,7 @@ def _is_under_any(base_paths, abs_path):
             return True
     return False
 
-# ---------- HTTP: превью и список LoRA ----------
+# ---------- HTTP: превью и список LoRA (оставляем, как в твоей версии) ----------
 @server.PromptServer.instance.routes.get("/lora_loader_preview/get_preview")
 async def get_lora_preview(request):
     lora_relative_path = request.query.get('lora_path')
@@ -236,63 +236,89 @@ async def save_lora_info(request):
 
 @server.PromptServer.instance.routes.post("/lora_loader_preview/upload_lora_preview")
 async def upload_lora_preview(request):
+    import tempfile, time, urllib.parse
+
     reader = await request.multipart()
     lora_relative_path = None
-    file_part = None
-    field = await reader.next()
-    while field is not None:
-        if field.name == 'lora_path':
-            lora_relative_path = (await field.text()).strip()
-        elif field.name == 'file':
-            file_part = field
-        field = await reader.next()
-
-    if not lora_relative_path or not file_part:
-        return web.Response(status=400, text="Missing lora_path or file")
+    tmp_file_path = None
+    uploaded_filename = None
 
     try:
+        field = await reader.next()
+        while field is not None:
+            if field.name == 'lora_path':
+                lora_relative_path = (await field.text()).strip()
+            elif field.name == 'file':
+                uploaded_filename = getattr(field, 'filename', None) or 'preview.png'
+                # Stream to a temp file immediately to avoid draining when moving to next part
+                with tempfile.NamedTemporaryFile(delete=False) as tmpf:
+                    tmp_file_path = tmpf.name
+                    while True:
+                        chunk = await field.read_chunk()
+                        if not chunk:
+                            break
+                        tmpf.write(chunk)
+            field = await reader.next()
+
+        if not lora_relative_path or not tmp_file_path:
+            # Cleanup temp if created
+            if tmp_file_path and os.path.exists(tmp_file_path):
+                try: os.remove(tmp_file_path)
+                except Exception: pass
+            return web.Response(status=400, text="Missing lora_path or file")
+
+        # Validate LoRA path and target directory
         lora_abs_path = folder_paths.get_full_path("loras", lora_relative_path)
         if not lora_abs_path or not os.path.isfile(lora_abs_path):
+            try: os.remove(tmp_file_path)
+            except Exception: pass
             return web.Response(status=404, text="LoRA file not found")
 
         lora_base_paths = folder_paths.get_folder_paths("loras")
         if not _is_under_any(lora_base_paths, lora_abs_path):
+            try: os.remove(tmp_file_path)
+            except Exception: pass
             return web.Response(status=403, text="Forbidden")
 
         base, _ = os.path.splitext(lora_abs_path)
 
-        # Determine extension from content-type or filename
-        filename = getattr(file_part, 'filename', None) or "preview.png"
-        _, ext = os.path.splitext(filename)
-        ext = ext.lower()
+        # Determine extension from uploaded filename
+        _, ext = os.path.splitext(uploaded_filename)
+        ext = (ext or '').lower()
         if ext not in PREVIEW_IMAGE_EXTENSIONS:
-            # Fallback to .png if unsupported
             ext = '.png'
 
-        # Remove old previews with other extensions
+        # Remove old previews
         for pext in PREVIEW_IMAGE_EXTENSIONS:
             old = base + pext
             if os.path.isfile(old):
-                try:
-                    os.remove(old)
-                except Exception:
-                    pass
+                try: os.remove(old)
+                except Exception: pass
 
-        # Save new file
+        # Move temp file into place with correct extension
         target = base + ext
-        with open(target, 'wb') as f:
-            while True:
-                chunk = await file_part.read_chunk()
-                if not chunk:
-                    break
-                f.write(chunk)
+        try:
+            os.replace(tmp_file_path, target)
+        except Exception:
+            # Fallback: copy+remove
+            with open(tmp_file_path, 'rb') as src, open(target, 'wb') as dst:
+                while True:
+                    chunk = src.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+            try: os.remove(tmp_file_path)
+            except Exception: pass
 
-        import urllib.parse, time
         encoded = urllib.parse.quote(lora_relative_path)
         preview_url = f"/lora_loader_preview/get_preview?lora_path={encoded}&t={int(time.time())}"
         return server.web.json_response({"ok": True, "preview_url": preview_url})
     except Exception as e:
         logger.error(f"[upload_lora_preview] {e}", exc_info=True)
+        # Best-effort cleanup
+        if tmp_file_path and os.path.exists(tmp_file_path):
+            try: os.remove(tmp_file_path)
+            except Exception: pass
         return web.Response(status=500, text="Internal server error")
 
 @server.PromptServer.instance.routes.get("/lora_loader_preview/list_loras")
@@ -531,5 +557,4 @@ class LoRAManagerWithPreview:
                 continue
 
         return (m, c)
-
 
