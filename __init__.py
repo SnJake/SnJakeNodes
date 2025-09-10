@@ -72,6 +72,7 @@ from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
 from .image_resize_nodes import SnJakeResizeIfLarger
 
 from .qwenrescal import QwenImageResolutionCalc
+from .hunyuanrescal import HunyuanImageResolutionCalc
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -158,9 +159,11 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeResizeIfLarger": SnJakeResizeIfLarger,
 
     "QwenImageResolutionCalc": QwenImageResolutionCalc,
+    "HunyuanImageResolutionCalc": HunyuanImageResolutionCalc,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "HunyuanImageResolutionCalc": "HunyuanImage-2.1 Resolution Calc",
     "VLMApiNode": "😎 VLM Api Node",
     "ScanImageFolder": "😎 List Image Files In Folder",
     "ScanImageFolder2": "😎 Simple List Image Files In Folder",    
@@ -243,6 +246,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeResizeIfLarger": "😎 Resize If Larger",
 
     "QwenImageResolutionCalc": "😎 Qwen-Image Resolution Calc",
+    "HunyuanImageResolutionCalc": "😎 Hunyuan Image Resolution Calc",
 }
 
 
