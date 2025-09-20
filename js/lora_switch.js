@@ -48,9 +48,15 @@ app.registerExtension({
       for (let i = MAX_PAIRS; i > keep; i--) {
         let idx;
         idx = node.inputs ? node.inputs.findIndex((inp) => inp?.name === `clip_${i}`) : -1;
-        if (idx !== -1) { node.removeInput(idx); removed = true; }
+        if (idx !== -1) {
+          node.removeInput(idx);
+          removed = true;
+        }
         idx = node.inputs ? node.inputs.findIndex((inp) => inp?.name === `model_${i}`) : -1;
-        if (idx !== -1) { node.removeInput(idx); removed = true; }
+        if (idx !== -1) {
+          node.removeInput(idx);
+          removed = true;
+        }
       }
       if (removed) {
         node.computeSize?.();
@@ -65,7 +71,9 @@ app.registerExtension({
           "number",
           "pairs_visible",
           DEFAULT_PAIRS,
-          (v) => { /* keep serialized only */ },
+          (v) => {
+            /* keep serialized only */
+          },
           { min: 1, max: MAX_PAIRS, step: 1 }
         );
         w.hidden = true;
@@ -74,14 +82,65 @@ app.registerExtension({
       return w;
     }
 
+    function pairIndexFromName(name) {
+      if (typeof name !== "string") return 0;
+      const match = name.match(/^(model|clip)_(\d+)$/);
+      return match ? parseInt(match[2], 10) || 0 : 0;
+    }
+
     function countExistingPairs(node) {
       if (!node.inputs || node.inputs.length === 0) return 0;
       let maxIdx = 0;
       for (const inp of node.inputs) {
-        const m = inp?.name && inp.name.match(/^(model|clip)_(\d+)$/);
-        if (m) maxIdx = Math.max(maxIdx, parseInt(m[2], 10) || 0);
+        const idx = pairIndexFromName(inp?.name);
+        if (idx > maxIdx) maxIdx = idx;
       }
       return maxIdx;
+    }
+
+    function hasSerializedLink(input) {
+      if (!input) return false;
+      if (input.link != null) return true;
+      if (Array.isArray(input.links)) {
+        return input.links.some((link) => link != null);
+      }
+      return false;
+    }
+
+    function inferSerializedConnectionState(info) {
+      if (!info || !Array.isArray(info.inputs)) {
+        return { lastFull: 0, lastAny: 0 };
+      }
+      const seen = new Map();
+      let lastAny = 0;
+      for (const inp of info.inputs) {
+        const idx = pairIndexFromName(inp?.name);
+        if (!idx) continue;
+        if (!hasSerializedLink(inp)) continue;
+        if (idx > lastAny) lastAny = idx;
+        const entry = seen.get(idx) || { model: false, clip: false };
+        if (inp.name.startsWith("model_")) {
+          entry.model = true;
+        } else if (inp.name.startsWith("clip_")) {
+          entry.clip = true;
+        }
+        seen.set(idx, entry);
+      }
+      let lastFull = 0;
+      for (const [idx, entry] of seen.entries()) {
+        if (entry.model && entry.clip) {
+          lastFull = Math.max(lastFull, idx);
+        }
+      }
+      return { lastFull, lastAny };
+    }
+
+    function getSavedPairCount(info) {
+      if (!info) return DEFAULT_PAIRS;
+      const { lastFull, lastAny } = inferSerializedConnectionState(info);
+      const baseline = lastFull > 0 ? lastFull + 1 : DEFAULT_PAIRS;
+      const desired = Math.max(baseline, lastAny);
+      return Math.max(DEFAULT_PAIRS, Math.min(MAX_PAIRS, desired || DEFAULT_PAIRS));
     }
 
     function isConnected(inputSlot) {
@@ -98,32 +157,47 @@ app.registerExtension({
       return isConnected(m) && isConnected(c);
     }
 
+    function updatePersistedPairs(node, value) {
+      const clamped = Math.max(DEFAULT_PAIRS, Math.min(MAX_PAIRS, value | 0));
+      const w = getPairsWidget(node);
+      if (w) w.value = clamped;
+      node.properties = node.properties || {};
+      node.properties.pairs_visible = clamped;
+    }
+
     nodeType.prototype.onNodeCreated = function () {
       const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
-      // Ensure we have the hidden state widget and start from DEFAULT_PAIRS
       const w = getPairsWidget(this);
       w.value = DEFAULT_PAIRS;
-      // Comfy creates all optional inputs on initial class load; prune to default
-      // Do it after a tick to avoid interfering with node construction
+      updatePersistedPairs(this, DEFAULT_PAIRS);
       setTimeout(() => {
         prunePairs(this, DEFAULT_PAIRS);
         ensurePairs(this, DEFAULT_PAIRS);
+        updatePersistedPairs(this, DEFAULT_PAIRS);
       }, 0);
       return r;
     };
 
     nodeType.prototype.onConfigure = function (info) {
       const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
-      // Ensure hidden widget exists; adjust after deserialization finishes
       const w = getPairsWidget(this);
-      const initial = Math.max(1, Math.min(MAX_PAIRS, Math.round(w.value || DEFAULT_PAIRS)));
+      const savedPairs = getSavedPairCount(info);
+      if ((w.value ?? 0) < savedPairs) {
+        w.value = savedPairs;
+      }
       setTimeout(() => {
-        // Determine desired count: respect saved value but also consider current connections
+        const initial = Math.max(1, Math.min(MAX_PAIRS, Math.round(w.value || savedPairs || DEFAULT_PAIRS)));
         const lastFull = lastFullyConnectedIndex(this);
-        let desired = Math.max(DEFAULT_PAIRS, Math.min(MAX_PAIRS, Math.max(initial, lastFull + 1)));
+        const desired = Math.max(
+          DEFAULT_PAIRS,
+          Math.min(
+            MAX_PAIRS,
+            Math.max(initial, savedPairs, lastFull + 1)
+          )
+        );
         prunePairs(this, desired);
         ensurePairs(this, desired);
-        w.value = desired;
+        updatePersistedPairs(this, desired);
       }, 0);
       return r;
     };
@@ -138,22 +212,20 @@ app.registerExtension({
       const r = onConnectionsChange
         ? onConnectionsChange.apply(this, arguments)
         : undefined;
-      // Grow when last visible pair is fully connected
       let currentPairs = Math.max(1, countExistingPairs(this));
       if (currentPairs < MAX_PAIRS && bothEndsConnected(this, currentPairs)) {
         ensurePairs(this, currentPairs + 1);
         currentPairs = currentPairs + 1;
       }
 
-      // Shrink to keep exactly one empty pair after the highest fully-connected pair
       const lastFull = lastFullyConnectedIndex(this);
       const desired = Math.max(DEFAULT_PAIRS, Math.min(MAX_PAIRS, lastFull + 1));
       if (countExistingPairs(this) > desired) {
         prunePairs(this, desired);
       }
 
-      const w = getPairsWidget(this);
-      w.value = Math.max(DEFAULT_PAIRS, countExistingPairs(this));
+      const totalPairs = Math.max(DEFAULT_PAIRS, countExistingPairs(this));
+      updatePersistedPairs(this, totalPairs);
       return r;
     };
 
