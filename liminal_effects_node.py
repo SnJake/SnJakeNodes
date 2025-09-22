@@ -246,42 +246,84 @@ class LiminalEffectsNode:
 
     def add_random_glitches(self, img, glitch_strength):
         """
-        Случайные блочные сдвиги
+        Strong glitch strips with displaced blocks, color tears and noise.
         glitch_strength ~ [0..1]
         """
+        if glitch_strength <= 0.0:
+            return img
+
         B, C, H, W = img.shape
         out = img.clone()
+        device = img.device
 
-        # Сколько блоков? Допустим, 0..5
-        max_blocks = 5
-        num_blocks = int(max_blocks * glitch_strength)
-
-        if num_blocks < 1:
-            return out
+        num_blocks = max(1, int(3 + glitch_strength * 12))
+        max_shift_x = max(1, int(W * (0.05 + 0.25 * glitch_strength)))
+        max_shift_y = max(0, int(H * (0.02 + 0.12 * glitch_strength)))
+        noise_amp = 0.3 * glitch_strength
 
         for b in range(B):
-            # Для каждого изображения в батче
             for _ in range(num_blocks):
-                # Случайная ширина/высота блока:
-                block_w = max(8, int(W*0.1*torch.rand(1).item()))  # ~ до 10% ширины
-                block_h = max(8, int(H*0.1*torch.rand(1).item()))  # ~ до 10% высоты
+                full_width = torch.rand(1, device=device).item() < (0.25 + 0.45 * glitch_strength)
+                full_height = torch.rand(1, device=device).item() < (0.15 + 0.35 * glitch_strength)
 
-                # Случайная позиция блока (x0, y0)
-                x0 = torch.randint(0, max(W-block_w, 1), (1,)).item()
-                y0 = torch.randint(0, max(H-block_h, 1), (1,)).item()
+                if full_width:
+                    block_w = W
+                else:
+                    min_frac_w = 0.05 + 0.05 * glitch_strength
+                    max_frac_w = min(0.6, 0.18 + 0.5 * glitch_strength)
+                    width_frac = min_frac_w + (max_frac_w - min_frac_w) * torch.rand(1, device=device).item()
+                    block_w = max(8, int(W * width_frac))
+                    block_w = min(block_w, W)
 
-                # Случайный сдвиг
-                shift_x = torch.randint(-10, 11, (1,)).item()  # -10..10
-                shift_y = 0  # Можно тоже random при желании
+                if full_height:
+                    block_h = H
+                else:
+                    min_frac_h = 0.04 + 0.04 * glitch_strength
+                    max_frac_h = min(0.4, 0.12 + 0.35 * glitch_strength)
+                    height_frac = min_frac_h + (max_frac_h - min_frac_h) * torch.rand(1, device=device).item()
+                    block_h = max(6, int(H * height_frac))
+                    block_h = min(block_h, H)
 
-                # Выделим блок
-                block = out[b, :, y0:y0+block_h, x0:x0+block_w]
-                # сдвинем roll
-                block = torch.roll(block, shifts=shift_x, dims=2)
-                # При желании ещё вертикальный shift
-                # block = torch.roll(block, shifts=shift_y, dims=1)
+                if block_w == W:
+                    x0 = 0
+                else:
+                    x0 = int(torch.randint(0, max(W - block_w, 1), (1,), device=device).item())
+                if block_h == H:
+                    y0 = 0
+                else:
+                    y0 = int(torch.randint(0, max(H - block_h, 1), (1,), device=device).item())
 
-                # Запишем обратно
-                out[b, :, y0:y0+block_h, x0:x0+block_w] = block
+                y1 = y0 + block_h
+                x1 = x0 + block_w
+
+                block = out[b:b+1, :, y0:y1, x0:x1].clone()
+
+                shift_x = int(torch.randint(-max_shift_x, max_shift_x + 1, (1,), device=device).item()) if max_shift_x > 0 else 0
+                shift_y = int(torch.randint(-max_shift_y, max_shift_y + 1, (1,), device=device).item()) if max_shift_y > 0 else 0
+
+                if shift_y != 0:
+                    block = torch.roll(block, shifts=shift_y, dims=2)
+                if shift_x != 0:
+                    block = torch.roll(block, shifts=shift_x, dims=3)
+
+                if C >= 3 and torch.rand(1, device=device).item() < 0.6 * glitch_strength:
+                    channel_shift = int(torch.randint(-max_shift_x, max_shift_x + 1, (1,), device=device).item())
+                    channel_idx = int(torch.randint(0, min(C, 3), (1,), device=device).item())
+                    block[:, channel_idx:channel_idx+1, :, :] = torch.roll(
+                        block[:, channel_idx:channel_idx+1, :, :],
+                        shifts=channel_shift,
+                        dims=3
+                    )
+
+                if noise_amp > 0 and torch.rand(1, device=device).item() < 0.8 * glitch_strength:
+                    noise = (torch.rand_like(block) - 0.5) * noise_amp
+                    block = block + noise
+
+                if block.size(2) > 1 and torch.rand(1, device=device).item() < (0.35 + 0.4 * glitch_strength):
+                    tear_row = int(torch.randint(0, block.size(2) - 1, (1,), device=device).item())
+                    block[:, :, tear_row:, :] = block[:, :, tear_row:tear_row+1, :]
+
+                block = block.clamp(0.0, 1.0)
+                out[b:b+1, :, y0:y1, x0:x1] = block
 
         return out
