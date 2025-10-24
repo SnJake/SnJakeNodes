@@ -43,6 +43,7 @@ from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
 from .image_resize_nodes import SnJakeResizeIfLarger
 from .qwenrescal import QwenImageResolutionCalc
 from .hunyuanrescal import HunyuanImageResolutionCalc
+from .image_crop_nodes import SnJakeInteractiveCropLoader, SnJakeImagePatchNode
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -100,6 +101,8 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeResizeIfLarger": SnJakeResizeIfLarger,
     "QwenImageResolutionCalc": QwenImageResolutionCalc,
     "HunyuanImageResolutionCalc": HunyuanImageResolutionCalc,
+    "SnJakeInteractiveCropLoader": SnJakeInteractiveCropLoader,
+    "SnJakeImagePatchNode": SnJakeImagePatchNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -159,6 +162,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeResizeIfLarger": "😎 Resize If Larger",
     "QwenImageResolutionCalc": "😎 Qwen-Image Resolution Calc",
     "HunyuanImageResolutionCalc": "😎 Hunyuan Image Resolution Calc",
+    "SnJakeInteractiveCropLoader": "😎 Load & Crop Image",
+    "SnJakeImagePatchNode": "😎 Patch Image Fragment",
 }
 
 
