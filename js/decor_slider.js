@@ -22,8 +22,19 @@ const SETTING_DEFAULTS = {
 const settingState = { ...SETTING_DEFAULTS };
 const trackedNodes = new Set();
 
-function markCanvasDirty() {
-    const canvas = app?.canvas;
+function markCanvasDirty(node) {
+    if (node?.setDirtyCanvas) {
+        node.setDirtyCanvas(true, true);
+        return;
+    }
+
+    const graph = node?.graph || app?.graph;
+    if (graph?.setDirtyCanvas) {
+        graph.setDirtyCanvas(true, true);
+        return;
+    }
+
+    const canvas = graph?.canvas || app?.graphcanvas || app?.canvas;
     if (!canvas) return;
     if (typeof canvas.setDirty === "function") {
         canvas.setDirty(true, true);
@@ -47,7 +58,7 @@ function startNodeAnimation(node) {
             stopNodeAnimation(node);
             return;
         }
-        markCanvasDirty();
+        markCanvasDirty(node);
         node.__sjake_anim_frame = requestAnimationFrame(tick);
     };
     node.__sjake_anim_frame = requestAnimationFrame(tick);
