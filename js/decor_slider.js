@@ -1,17 +1,148 @@
 import { app } from "../../../scripts/app.js";
-// Toggle to enable/disable planar waves visual
-const SJ_WAVES_ENABLED = false;
-// Toggle to enable/disable edge pulses (from sides to center)
-const SJ_EDGE_PULSE_ENABLED = false;
+
+const SNJAKE_TITLE_MARKER = "\u{1F60E}";
+const SNJAKE_CATEGORY_TOKEN = "SnJake";
+const SNJAKE_CATEGORY_TOKEN_LC = SNJAKE_CATEGORY_TOKEN.toLowerCase();
+const SETTINGS_CATEGORY = ["SnJakeNodes", "Decor Slider"];
+const CATEGORY_ROWS = {
+    slider: [...SETTINGS_CATEGORY, "Decor Slider"],
+    waves: [...SETTINGS_CATEGORY, "Slider Waves"],
+    pulses: [...SETTINGS_CATEGORY, "Slider Pulses"],
+};
+const SETTING_IDS = {
+    slider: "SnJakeNodes.DecorSlider.Enabled",
+    waves: "SnJakeNodes.DecorSlider.Waves",
+    pulses: "SnJakeNodes.DecorSlider.Pulses",
+};
+const SETTING_DEFAULTS = {
+    slider: true,
+    waves: false,
+    pulses: false,
+};
+const settingState = { ...SETTING_DEFAULTS };
+const trackedNodes = new Set();
+
+function markCanvasDirty() {
+    const canvas = app?.canvas;
+    if (!canvas) return;
+    if (typeof canvas.setDirty === "function") {
+        canvas.setDirty(true, true);
+    } else if (typeof canvas.draw === "function") {
+        canvas.draw(true, true);
+    }
+}
+
+function stopNodeAnimation(node) {
+    if (!node) return;
+    if (node.__sjake_anim_frame) {
+        cancelAnimationFrame(node.__sjake_anim_frame);
+        node.__sjake_anim_frame = null;
+    }
+}
+
+function startNodeAnimation(node) {
+    if (!node || node.__sjake_anim_frame) return;
+    const tick = () => {
+        if (!node.graph || !settingState.slider) {
+            stopNodeAnimation(node);
+            return;
+        }
+        markCanvasDirty();
+        node.__sjake_anim_frame = requestAnimationFrame(tick);
+    };
+    node.__sjake_anim_frame = requestAnimationFrame(tick);
+}
+
+function updateNodeAnimationState(node) {
+    if (!node) return;
+    const shouldRun = settingState.slider && node.graph;
+    if (shouldRun) {
+        startNodeAnimation(node);
+    } else {
+        stopNodeAnimation(node);
+    }
+}
+
+function updateAllNodeAnimations() {
+    trackedNodes.forEach(updateNodeAnimationState);
+}
+
+function snapshotSettings() {
+    const mgr = app?.extensionManager?.setting;
+    if (!mgr?.get) {
+        Object.assign(settingState, SETTING_DEFAULTS);
+        return;
+    }
+    const read = (id, fallback) => {
+        const val = mgr.get(id);
+        return typeof val === "boolean" ? val : fallback;
+    };
+    settingState.slider = read(SETTING_IDS.slider, SETTING_DEFAULTS.slider);
+    settingState.waves = read(SETTING_IDS.waves, SETTING_DEFAULTS.waves);
+    settingState.pulses = read(SETTING_IDS.pulses, SETTING_DEFAULTS.pulses);
+}
+
+const EXTENSION_SETTINGS = [
+    {
+        id: SETTING_IDS.slider,
+        name: "Decor Slider",
+        type: "boolean",
+        defaultValue: SETTING_DEFAULTS.slider,
+        category: CATEGORY_ROWS.slider,
+        tooltip: "Draw the decorative slider under every SnJake node (😎 prefix or SnJake*).",
+        onChange: (value) => {
+            settingState.slider = value !== false;
+            updateAllNodeAnimations();
+        },
+    },
+    {
+        id: SETTING_IDS.waves,
+        name: "Slider Waves",
+        type: "boolean",
+        defaultValue: SETTING_DEFAULTS.waves,
+        category: CATEGORY_ROWS.waves,
+        tooltip: "Adds the optional planar waves across the slider track.",
+        onChange: (value) => {
+            settingState.waves = value === true;
+        },
+    },
+    {
+        id: SETTING_IDS.pulses,
+        name: "Slider Pulses",
+        type: "boolean",
+        defaultValue: SETTING_DEFAULTS.pulses,
+        category: CATEGORY_ROWS.pulses,
+        tooltip: "Enables the rare edge-to-center pulses along the slider.",
+        onChange: (value) => {
+            settingState.pulses = value === true;
+        },
+    },
+];
+
+const isDecorSliderEnabled = () => !!settingState.slider;
+const areWavesEnabled = () => !!settingState.waves;
+const arePulsesEnabled = () => !!settingState.pulses;
+
+function isSnJakeNode(node) {
+    if (!node) return false;
+    const title = (node.title || "").toString();
+    if (title.includes(SNJAKE_TITLE_MARKER)) return true;
+    const category = (node.constructor?.category || node.category || "").toString().toLowerCase();
+    if (category.includes(SNJAKE_CATEGORY_TOKEN_LC)) return true;
+    const comfyType = (node.type || node.comfyClass || node.constructor?.type || "").toString().toLowerCase();
+    return comfyType.startsWith(SNJAKE_CATEGORY_TOKEN_LC);
+}
 
 // Universal decorative silver slider for all SnJake nodes (titles prefixed with "😎")
 app.registerExtension({
     name: "SnJake.DecorSlider",
+    settings: EXTENSION_SETTINGS,
+    async setup() {
+        snapshotSettings();
+        updateAllNodeAnimations();
+    },
     async nodeCreated(node) {
-        // Only target SnJake nodes that use the 😎 prefix in their title
-        const title = (node && (node.title || "")).toString();
-        const isSnJake = title.startsWith("😎");
-        if (!isSnJake) return;
+        if (!isSnJakeNode(node)) return;
 
         // Avoid double-initialization if a node-specific script already added it
         if (node.__sjake_anim_init) return;
@@ -33,7 +164,7 @@ app.registerExtension({
 
             const w = this.size?.[0] ?? 0;
             const h = this.size?.[1] ?? 0;
-            if (!w || !h) return;
+            if (!w || !h || !isDecorSliderEnabled()) return;
 
             // Skip when collapsed/minimized
             if (this.flags && (this.flags.collapsed || this.flags.minimized)) return;
@@ -71,8 +202,8 @@ app.registerExtension({
             ctx.stroke();
             ctx.restore();
 
-            // Optional planar waves (disabled by default)
-            if (SJ_WAVES_ENABLED) {
+            // Optional planar waves (disabled by default, toggleable in settings)
+            if (areWavesEnabled()) {
                 const dt = Math.min(0.1, Math.max(0, now - (this.__sjake_last_time || now)));
                 this.__sjake_last_time = now;
                 if (now >= (this.__sjake_next_pulse || now)) {
@@ -83,7 +214,7 @@ app.registerExtension({
             }
 
             // Edge-to-center pulse from both sides (rare and gentle)
-            if (SJ_EDGE_PULSE_ENABLED) {
+            if (arePulsesEnabled()) {
                 handleEdgePulses(this, now, x, y, trackW, trackH, ctx, theme);
             }
 
@@ -120,26 +251,14 @@ app.registerExtension({
             ctx.restore();
         };
 
-        // Lightweight animation loop to keep canvas fresh while node exists
-        const ensureRedraw = () => {
-            const canvas = app?.canvas;
-            if (!canvas) return;
-            if (typeof canvas.setDirty === "function") canvas.setDirty(true, true);
-            else if (typeof canvas.draw === "function") canvas.draw(true, true);
-        };
-
-        const animate = () => {
-            if (!node.graph) return; // stop when node is detached
-            ensureRedraw();
-            node.__sjake_anim_frame = requestAnimationFrame(animate);
-        };
-        node.__sjake_anim_frame = requestAnimationFrame(animate);
+        trackedNodes.add(node);
+        updateNodeAnimationState(node);
 
         // Cleanup when removed
         node.onRemoved = function () {
+            trackedNodes.delete(this);
+            stopNodeAnimation(this);
             if (prevOnRemoved) prevOnRemoved();
-            if (this.__sjake_anim_frame) cancelAnimationFrame(this.__sjake_anim_frame);
-            this.__sjake_anim_frame = null;
         };
     }
 });
