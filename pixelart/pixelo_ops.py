@@ -254,5 +254,3 @@ def contrast_aware_downsample(image_rgb, pixel_size):
 
     print("PixelOE Contrast-Aware Downsampling finished.")
     return downscaled_rgb.to(dtype) # Convert back to original dtype
-
-# --- END OF FILE pixelart/pixelo_ops.py ---
