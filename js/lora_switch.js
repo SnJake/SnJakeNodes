@@ -10,6 +10,17 @@ app.registerExtension({
     const DEFAULT_PAIRS = 4;
     const MAX_PAIRS = 12;
 
+    function clampVisiblePairs(value) {
+      const num =
+        typeof value === "number"
+          ? value
+          : value != null
+          ? Number(value)
+          : NaN;
+      if (!Number.isFinite(num)) return DEFAULT_PAIRS;
+      return Math.max(DEFAULT_PAIRS, Math.min(MAX_PAIRS, Math.round(num)));
+    }
+
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     const onConfigure = nodeType.prototype.onConfigure;
     const onConnectionsChange = nodeType.prototype.onConnectionsChange;
@@ -135,12 +146,29 @@ app.registerExtension({
       return { lastFull, lastAny };
     }
 
+    function readPersistedPairs(info) {
+      if (!info || !info.properties) return null;
+      const raw = info.properties.pairs_visible;
+      const num =
+        typeof raw === "number"
+          ? raw
+          : raw != null
+          ? Number(raw)
+          : NaN;
+      return Number.isFinite(num) ? num : null;
+    }
+
     function getSavedPairCount(info) {
       if (!info) return DEFAULT_PAIRS;
+      const persisted = readPersistedPairs(info);
       const { lastFull, lastAny } = inferSerializedConnectionState(info);
       const baseline = lastFull > 0 ? lastFull + 1 : DEFAULT_PAIRS;
       const desired = Math.max(baseline, lastAny);
-      return Math.max(DEFAULT_PAIRS, Math.min(MAX_PAIRS, desired || DEFAULT_PAIRS));
+      const fallback = desired || DEFAULT_PAIRS;
+      if (persisted != null) {
+        return clampVisiblePairs(Math.max(persisted, fallback));
+      }
+      return clampVisiblePairs(fallback);
     }
 
     function isConnected(inputSlot) {
@@ -158,7 +186,7 @@ app.registerExtension({
     }
 
     function updatePersistedPairs(node, value) {
-      const clamped = Math.max(DEFAULT_PAIRS, Math.min(MAX_PAIRS, value | 0));
+      const clamped = clampVisiblePairs(value);
       const w = getPairsWidget(node);
       if (w) w.value = clamped;
       node.properties = node.properties || {};
@@ -168,13 +196,10 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
       const w = getPairsWidget(this);
-      w.value = DEFAULT_PAIRS;
-      updatePersistedPairs(this, DEFAULT_PAIRS);
-      setTimeout(() => {
-        prunePairs(this, DEFAULT_PAIRS);
-        ensurePairs(this, DEFAULT_PAIRS);
-        updatePersistedPairs(this, DEFAULT_PAIRS);
-      }, 0);
+      const initial = clampVisiblePairs(w.value ?? DEFAULT_PAIRS);
+      prunePairs(this, initial);
+      ensurePairs(this, initial);
+      updatePersistedPairs(this, initial);
       return r;
     };
 
@@ -182,23 +207,12 @@ app.registerExtension({
       const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
       const w = getPairsWidget(this);
       const savedPairs = getSavedPairCount(info);
-      if ((w.value ?? 0) < savedPairs) {
-        w.value = savedPairs;
-      }
-      setTimeout(() => {
-        const initial = Math.max(1, Math.min(MAX_PAIRS, Math.round(w.value || savedPairs || DEFAULT_PAIRS)));
-        const lastFull = lastFullyConnectedIndex(this);
-        const desired = Math.max(
-          DEFAULT_PAIRS,
-          Math.min(
-            MAX_PAIRS,
-            Math.max(initial, savedPairs, lastFull + 1)
-          )
-        );
-        prunePairs(this, desired);
-        ensurePairs(this, desired);
-        updatePersistedPairs(this, desired);
-      }, 0);
+      const widgetPairs = clampVisiblePairs(w.value ?? savedPairs);
+      w.value = widgetPairs;
+      const desired = clampVisiblePairs(Math.max(widgetPairs, savedPairs));
+      prunePairs(this, desired);
+      ensurePairs(this, desired);
+      updatePersistedPairs(this, desired);
       return r;
     };
 
