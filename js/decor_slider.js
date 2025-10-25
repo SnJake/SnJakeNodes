@@ -21,61 +21,68 @@ const SETTING_DEFAULTS = {
 };
 const settingState = { ...SETTING_DEFAULTS };
 const trackedNodes = new Set();
+let animationDriver = null;
 
 function markCanvasDirty(node) {
-    if (node?.setDirtyCanvas) {
-        node.setDirtyCanvas(true, true);
-        return;
-    }
-
     const graph = node?.graph || app?.graph;
-    if (graph?.setDirtyCanvas) {
-        graph.setDirtyCanvas(true, true);
-        return;
-    }
+    node?.setDirtyCanvas?.(true, true);
+    graph?.setDirtyCanvas?.(true, true);
 
-    const canvas = graph?.canvas || app?.graphcanvas || app?.canvas;
-    if (!canvas) return;
-    if (typeof canvas.setDirty === "function") {
-        canvas.setDirty(true, true);
-    } else if (typeof canvas.draw === "function") {
-        canvas.draw(true, true);
+    const canvases = [
+        graph?.canvas,
+        app?.canvas,
+        app?.graphcanvas,
+    ];
+    for (const canvas of canvases) {
+        if (!canvas) continue;
+        if (typeof canvas.setDirty === "function") {
+            canvas.setDirty(true, true);
+        }
+        if (typeof canvas.draw === "function") {
+            canvas.draw(true, true);
+        }
+    }
+}
+
+function ensureAnimationDriver() {
+    if (animationDriver != null) return;
+    const tick = () => {
+        if (!settingState.slider || trackedNodes.size === 0) {
+            animationDriver = null;
+            return;
+        }
+        const sample = trackedNodes.values().next().value;
+        markCanvasDirty(sample);
+        animationDriver = requestAnimationFrame(tick);
+    };
+    animationDriver = requestAnimationFrame(tick);
+}
+
+function stopAnimationDriver() {
+    if (animationDriver != null) {
+        cancelAnimationFrame(animationDriver);
+        animationDriver = null;
     }
 }
 
 function stopNodeAnimation(node) {
     if (!node) return;
-    if (node.__sjake_anim_frame) {
-        cancelAnimationFrame(node.__sjake_anim_frame);
-        node.__sjake_anim_frame = null;
-    }
+    trackedNodes.delete(node);
+    updateAllNodeAnimations();
 }
 
 function startNodeAnimation(node) {
-    if (!node || node.__sjake_anim_frame) return;
-    const tick = () => {
-        if (!node.graph || !settingState.slider) {
-            stopNodeAnimation(node);
-            return;
-        }
-        markCanvasDirty(node);
-        node.__sjake_anim_frame = requestAnimationFrame(tick);
-    };
-    node.__sjake_anim_frame = requestAnimationFrame(tick);
-}
-
-function updateNodeAnimationState(node) {
     if (!node) return;
-    const shouldRun = settingState.slider && node.graph;
-    if (shouldRun) {
-        startNodeAnimation(node);
-    } else {
-        stopNodeAnimation(node);
-    }
+    trackedNodes.add(node);
+    updateAllNodeAnimations();
 }
 
 function updateAllNodeAnimations() {
-    trackedNodes.forEach(updateNodeAnimationState);
+    if (settingState.slider && trackedNodes.size > 0) {
+        ensureAnimationDriver();
+    } else {
+        stopAnimationDriver();
+    }
 }
 
 function snapshotSettings() {
@@ -262,12 +269,10 @@ app.registerExtension({
             ctx.restore();
         };
 
-        trackedNodes.add(node);
-        updateNodeAnimationState(node);
+        startNodeAnimation(node);
 
         // Cleanup when removed
         node.onRemoved = function () {
-            trackedNodes.delete(this);
             stopNodeAnimation(this);
             if (prevOnRemoved) prevOnRemoved();
         };
