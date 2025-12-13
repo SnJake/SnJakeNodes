@@ -1,4 +1,4 @@
-﻿import { app } from "../../../scripts/app.js";
+import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
 const CROP_NODE_CLASS = "SnJakeInteractiveCropLoader";
@@ -322,6 +322,36 @@ const setModalStylesOnce = (() => {
         .snjake-crop-handle[data-dir="ne"] { top: -${HANDLE_SIZE/2}px; right: -${HANDLE_SIZE/2}px; cursor: nesw-resize; }
         .snjake-crop-handle[data-dir="se"] { bottom: -${HANDLE_SIZE/2}px; right: -${HANDLE_SIZE/2}px; cursor: nwse-resize; }
         .snjake-crop-handle[data-dir="sw"] { bottom: -${HANDLE_SIZE/2}px; left: -${HANDLE_SIZE/2}px; cursor: nesw-resize; }
+        .snjake-crop-size {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            color: #d6def5;
+            font-size: 13px;
+        }
+        .snjake-crop-size input[type="number"] {
+            width: 96px;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06);
+            color: #f0f6ff;
+        }
+        .snjake-crop-size .divider {
+            opacity: 0.6;
+        }
+        .snjake-crop-size button {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.1);
+            color: #f0f6ff;
+            cursor: pointer;
+        }
+        .snjake-crop-size button:hover {
+            filter: brightness(1.05);
+        }
         `;
         document.head.appendChild(style);
     };
@@ -342,6 +372,9 @@ const openCropModal = async (node) => {
     }
 
     setModalStylesOnce();
+
+    let widthInput;
+    let heightInput;
 
     const overlay = document.createElement("div");
     overlay.className = "snjake-crop-overlay";
@@ -384,6 +417,37 @@ const openCropModal = async (node) => {
     actions.append(cancelBtn, resetBtn, applyBtn);
     toolbar.append(title, zoomWrap, actions);
 
+    const sizeRow = document.createElement("div");
+    sizeRow.className = "snjake-crop-size";
+    const sizeLabel = document.createElement("span");
+    sizeLabel.textContent = "Manual size";
+
+    widthInput = document.createElement("input");
+    widthInput.type = "number";
+    widthInput.min = "1";
+    widthInput.step = "1";
+    widthInput.value = String(Math.max(1, Math.round(crop.rect?.width || crop.imageSize?.w || 1)));
+
+    const sizeDivider = document.createElement("span");
+    sizeDivider.textContent = "×";
+    sizeDivider.className = "divider";
+
+    heightInput = document.createElement("input");
+    heightInput.type = "number";
+    heightInput.min = "1";
+    heightInput.step = "1";
+    heightInput.value = String(Math.max(1, Math.round(crop.rect?.height || crop.imageSize?.h || 1)));
+
+    const sizeApplyBtn = document.createElement("button");
+    sizeApplyBtn.type = "button";
+    sizeApplyBtn.textContent = "Apply";
+
+    const sizeCenterBtn = document.createElement("button");
+    sizeCenterBtn.type = "button";
+    sizeCenterBtn.textContent = "Center";
+
+    sizeRow.append(sizeLabel, widthInput, sizeDivider, heightInput, sizeApplyBtn, sizeCenterBtn);
+
     const canvasHolder = document.createElement("div");
     canvasHolder.className = "snjake-crop-canvas";
 
@@ -413,7 +477,7 @@ const openCropModal = async (node) => {
     imgWrapper.append(img, rectEl);
     canvasHolder.appendChild(imgWrapper);
 
-    panel.append(toolbar, canvasHolder);
+    panel.append(toolbar, sizeRow, canvasHolder);
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
 
@@ -427,6 +491,12 @@ const openCropModal = async (node) => {
     let scale = 1;
     let baseScale = 1;
     let currentZoom = 1;
+
+    const syncSizeInputs = () => {
+        if (!widthInput || !heightInput) return;
+        widthInput.value = `${Math.round(Math.max(1, workingRect.width))}`;
+        heightInput.value = `${Math.round(Math.max(1, workingRect.height))}`;
+    };
 
     const updateZoomLabel = () => {
         zoomLabel.textContent = `Zoom: ${Math.round(currentZoom * 100)}%`;
@@ -442,6 +512,7 @@ const openCropModal = async (node) => {
         rectEl.style.width = `${Math.max(1, workingRect.width * scale)}px`;
         rectEl.style.height = `${Math.max(1, workingRect.height * scale)}px`;
         rectEl.dataset.size = `${Math.round(workingRect.width)} x ${Math.round(workingRect.height)}`;
+        syncSizeInputs();
     };
 
     const recalcScale = () => {
@@ -468,6 +539,26 @@ const openCropModal = async (node) => {
     const clampWorkingRect = () => {
         const clamped = clampRect(workingRect, cropSize.w, cropSize.h);
         Object.assign(workingRect, clamped);
+    };
+
+    const applyManualSize = (centerOnImage = false) => {
+        if (!widthInput || !heightInput) return;
+        const desiredW = Math.max(1, parseInt(widthInput.value, 10) || workingRect.width);
+        const desiredH = Math.max(1, parseInt(heightInput.value, 10) || workingRect.height);
+
+        const next = {
+            ...workingRect,
+            width: desiredW,
+            height: desiredH,
+        };
+
+        if (centerOnImage) {
+            next.x = (cropSize.w - desiredW) / 2;
+            next.y = (cropSize.h - desiredH) / 2;
+        }
+
+        Object.assign(workingRect, clampRect(next, cropSize.w, cropSize.h));
+        updateRectDisplay();
     };
 
     const applyZoom = () => {
@@ -584,6 +675,18 @@ const openCropModal = async (node) => {
         currentZoom = next / 100;
         applyZoom();
     });
+
+    const onSizeChange = () => applyManualSize(false);
+    [widthInput, heightInput].forEach((input) => {
+        input.addEventListener("change", onSizeChange);
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                applyManualSize(e.shiftKey);
+            }
+        });
+    });
+    sizeApplyBtn.addEventListener("click", () => applyManualSize(false));
+    sizeCenterBtn.addEventListener("click", () => applyManualSize(true));
 
     const onKey = (e) => {
         if (e.key === "Escape") cleanup();
