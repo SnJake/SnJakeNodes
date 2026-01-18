@@ -1,4 +1,4 @@
-import { app } from "../../../scripts/app.js";
+﻿import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
 const CROP_NODE_CLASS = "SnJakeInteractiveCropLoader";
