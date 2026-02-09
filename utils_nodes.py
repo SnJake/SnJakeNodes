@@ -14,9 +14,8 @@ from comfy_execution.graph_utils import GraphBuilder
 
 class BatchLoadImages:
     """
-    Узел для пакетной загрузки изображений из папки без кеширования.
-    Параметры и логика индексации/циклической выдачи сохранены,
-    но кэширования (cached_paths) больше нет.
+    ???? ??? ???????? ???????? ??????????? ?? ????? ??? ???????????.
+    ????????????? ????? ???????? RAW-?????????? ? ??????????? prompt.
     """
 
     @classmethod
@@ -31,47 +30,51 @@ class BatchLoadImages:
                 "pattern": ("STRING", {"default": "*"}),
                 "allow_RGBA_output": (["false", "true"], {"default": "false"}),
 
-                # <-- переключатель "по кругу"
+                # ????????????? "?? ?????"
                 "allow_cycle": (["true", "false"], {"default":"true", "label_on":"Cycle On", "label_off":"Cycle Off"}),
             },
             "optional": {
                 "filename_text_extension": (["true", "false"], {"default":"true"}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+                "extra_pnginfo": "EXTRA_PNGINFO",
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING")
-    RETURN_NAMES = ("image", "filename_text")
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("image", "filename_text", "raw_metadata", "prompt_text")
     FUNCTION = "load_batch_images"
-    CATEGORY = "😎 SnJake/Utils"
+    CATEGORY = "?? SnJake/Utils"
 
-    # ----------------------------------------------------------
-    # Счётчики для 'incremental_image' (label -> index)
-    # ----------------------------------------------------------
+    # ???????? ??? 'incremental_image' (label -> index)
     incremental_counters = {}
 
     def load_batch_images(
-        self, 
-        path, 
-        pattern="*", 
-        index=0, 
+        self,
+        path,
+        pattern="*",
+        index=0,
         mode="single_image",
-        seed=0, 
-        label="Batch 001", 
-        allow_RGBA_output="false", 
+        seed=0,
+        label="Batch 001",
+        allow_RGBA_output="false",
         filename_text_extension="true",
-        allow_cycle="true"
+        allow_cycle="true",
+        unique_id=None,
+        extra_pnginfo=None
     ):
-        # 1) Собираем список картинок БЕЗ кэширования
+        # 1) ???????? ?????? ???????? ??? ???????????
         all_files = self._scan_directory(path, pattern)
         if not all_files:
-            print(f"[BatchLoadImages] Папка '{path}' пуста или нет подходящих файлов по паттерну '{pattern}'")
-            return (None, None)
+            print(f"[BatchLoadImages] ????? '{path}' ????? ??? ??? ?????????? ?????? ?? ???????? '{pattern}'")
+            return (None, None, "", "")
 
-        # 2) Логика выбора индекса
+        # 2) ?????? ?????? ???????
         if mode == "single_image":
             if index < 0 or index >= len(all_files):
-                print(f"[BatchLoadImages] Запрошен index={index}, но в папке только {len(all_files)} файлов.")
-                return (None, None)
+                print(f"[BatchLoadImages] ???????? index={index}, ?? ? ????? ?????? {len(all_files)} ??????.")
+                return (None, None, "", "")
             chosen_index = index
 
         elif mode == "incremental_image":
@@ -79,54 +82,66 @@ class BatchLoadImages:
                 self.incremental_counters[label] = 0
             chosen_index = self.incremental_counters[label]
 
-            # Если достигли конца
+            # ???? ???????? ?????
             if chosen_index >= len(all_files):
                 if allow_cycle == "true":
-                    # «По кругу»: сбрасываем в 0
-                    print(f"[BatchLoadImages] Для label='{label}' индекс достиг конца ({chosen_index}). Сбрасываем в 0 (cycling).")
+                    # ?? ?????: ?????????? ? 0
+                    print(f"[BatchLoadImages] ??? label='{label}' ?????? ?????? ????? ({chosen_index}). ?????????? ? 0 (cycling).")
                     chosen_index = 0
                     self.incremental_counters[label] = 0
                 else:
-                    # Выходим с ошибкой
-                    print(f"[BatchLoadImages] Изображения в папке закончились для label='{label}'. Останавливаемся.")
-                    return (None, None)
+                    # ??????? ? ???????
+                    print(f"[BatchLoadImages] ??????????? ? ????? ??????????? ??? label='{label}'. ???????????????.")
+                    return (None, None, "", "")
 
-            # Готовим индекс на след. раз
+            # ??????? ?????? ?? ????????? ??????
             self.incremental_counters[label] += 1
 
         else:  # mode == 'random'
             random.seed(seed)
             chosen_index = random.randint(0, len(all_files) - 1)
 
-        # 3) Открываем картинку
+        # 3) ????????? ????????
         img_path = all_files[chosen_index]
         image_tensor = self._load_as_tensor(img_path, allow_RGBA_output == "true")
 
-        # 4) Если нужно убрать расширение у filename
+        # 4) ???? ????? ?????? ?????????? ? filename
         filename = os.path.basename(img_path)
         if filename_text_extension == "false":
             filename = os.path.splitext(filename)[0]
 
-        return (image_tensor, filename)
+        # 5) ?????? ?????????? ?????? ???? ???? ?? ???? ?? ????? ??????? ?????????.
+        #    ???? ?????????? ??????????? ?? ???????, ?????? (fallback ? ??????? ????????????).
+        raw_metadata_text = ""
+        prompt_text = ""
+
+        raw_out_connected = self._is_output_connected(extra_pnginfo, unique_id, 2)
+        prompt_out_connected = self._is_output_connected(extra_pnginfo, unique_id, 3)
+        should_read_metadata = not (raw_out_connected is False and prompt_out_connected is False)
+
+        if should_read_metadata:
+            raw_metadata_text, prompt_text = self._read_metadata_and_prompt(img_path)
+
+        return (image_tensor, filename, raw_metadata_text, prompt_text)
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         """
-        Если mode != single_image, возвращаем NaN, чтобы ComfyUI всегда перезапрашивал
-        (иначе "random"/"incremental" могут не обновиться).
+        ???? mode != single_image, ?????????? NaN, ????? ComfyUI ?????? ??????????????
+        (????? "random"/"incremental" ????? ?? ??????????).
         """
         if kwargs["mode"] != "single_image":
             return float("NaN")
         else:
-            path    = kwargs["path"]
-            index   = kwargs["index"]
+            path = kwargs["path"]
+            index = kwargs["index"]
             pattern = kwargs["pattern"]
-            mode    = kwargs["mode"]
-            # Для single_image достаточно триггерить пересчёт, когда что-то меняется
+            mode = kwargs["mode"]
+            # ??? single_image ?????????? ?????????? ????????, ????? ???-?? ????????
             return (path, pattern, mode, index)
 
     # --------------------------------------------------------------------
-    # Служебные методы
+    # ????????? ??????
     # --------------------------------------------------------------------
     def _scan_directory(self, directory_path, pattern):
         exts = [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tiff"]
@@ -138,21 +153,17 @@ class BatchLoadImages:
         return files
 
     def _load_as_tensor(self, file_path, allow_rgba=False):
-        from PIL import Image, ImageOps
-        import numpy as np
-        import torch
-
         pil_img = Image.open(file_path)
         pil_img = ImageOps.exif_transpose(pil_img)
 
-        # Приводим к RGB, если не разрешён RGBA
+        # ???????? ? RGB, ???? ?? ???????? RGBA
         if not allow_rgba and pil_img.mode != "RGB":
             pil_img = pil_img.convert("RGB")
         elif allow_rgba and pil_img.mode == "RGBA":
-            # Оставляем RGBA, если пользователь разрешил
+            # ????????? RGBA, ???? ???????????? ????????
             pass
         else:
-            # Если вдруг формат P, LA и т.д., приводим к RGB
+            # ???? ????? ?????? P, LA ? ?.?., ???????? ? RGB
             if pil_img.mode not in ["RGB", "RGBA"]:
                 pil_img = pil_img.convert("RGB")
 
@@ -161,8 +172,222 @@ class BatchLoadImages:
         tensor = torch.from_numpy(np_img)[None, ]
         return tensor
 
+    def _is_output_connected(self, extra_pnginfo, unique_id, output_slot):
+        """
+        ??????????:
+        - True/False, ???? ??????? ?????????? ??????????? ?????? ?? workflow;
+        - None, ???? ?????????? ?? ???????.
+        """
+        workflow = self._extract_workflow_from_extra(extra_pnginfo)
+        if workflow is None or unique_id is None:
+            return None
 
+        nodes = workflow.get("nodes", None)
+        if not isinstance(nodes, list):
+            return None
 
+        node_info = None
+        for n in nodes:
+            if str(n.get("id")) == str(unique_id):
+                node_info = n
+                break
+
+        if node_info is None:
+            return None
+
+        outputs = node_info.get("outputs", None)
+        if not isinstance(outputs, list):
+            return None
+
+        if output_slot < 0 or output_slot >= len(outputs):
+            return False
+
+        out = outputs[output_slot]
+        if not isinstance(out, dict):
+            return False
+
+        links = out.get("links", None)
+        return isinstance(links, list) and len(links) > 0
+
+    def _extract_workflow_from_extra(self, extra_pnginfo):
+        if extra_pnginfo is None:
+            return None
+
+        workflow = None
+        if isinstance(extra_pnginfo, dict):
+            workflow = extra_pnginfo.get("workflow", None)
+            if workflow is None and "nodes" in extra_pnginfo:
+                workflow = extra_pnginfo
+        elif isinstance(extra_pnginfo, str):
+            try:
+                parsed = json.loads(extra_pnginfo)
+                if isinstance(parsed, dict):
+                    workflow = parsed.get("workflow", parsed)
+            except Exception:
+                workflow = None
+
+        if isinstance(workflow, str):
+            try:
+                workflow = json.loads(workflow)
+            except Exception:
+                return None
+
+        return workflow if isinstance(workflow, dict) else None
+
+    def _read_metadata_and_prompt(self, file_path):
+        metadata = {}
+        try:
+            with Image.open(file_path) as pil_img:
+                metadata.update(dict(getattr(pil_img, "info", {}) or {}))
+                exif_dict = self._extract_exif_dict(pil_img)
+                if exif_dict:
+                    metadata["exif"] = exif_dict
+        except Exception as e:
+            print(f"[BatchLoadImages] ?? ??????? ????????? ?????????? ?? '{file_path}': {e}")
+            return ("", "")
+
+        raw_metadata_text = self._metadata_to_json_string(metadata)
+        prompt_text = self._extract_prompt_text(metadata)
+        return (raw_metadata_text, prompt_text)
+
+    def _extract_exif_dict(self, pil_img):
+        exif_result = {}
+        try:
+            exif = pil_img.getexif()
+            if exif:
+                for tag_id, value in exif.items():
+                    exif_result[str(tag_id)] = self._make_json_safe(value)
+        except Exception:
+            pass
+        return exif_result
+
+    def _metadata_to_json_string(self, metadata):
+        if not isinstance(metadata, dict) or not metadata:
+            return ""
+        safe_metadata = {str(k): self._make_json_safe(v) for k, v in metadata.items()}
+        try:
+            return json.dumps(safe_metadata, ensure_ascii=False)
+        except Exception:
+            return str(safe_metadata)
+
+    def _make_json_safe(self, value):
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except Exception:
+                return value.hex()
+        if isinstance(value, dict):
+            return {str(k): self._make_json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._make_json_safe(v) for v in value]
+        return str(value)
+
+    def _extract_prompt_text(self, metadata):
+        if not isinstance(metadata, dict):
+            return ""
+
+        # 1) Comfy prompt object
+        prompt_obj = self._try_parse_json_object(metadata.get("prompt", None))
+        if isinstance(prompt_obj, dict):
+            extracted = self._extract_prompt_from_comfy_prompt(prompt_obj)
+            if extracted:
+                return extracted
+
+        # 2) workflow.widgets_values fallback
+        workflow_obj = self._try_parse_json_object(metadata.get("workflow", None))
+        if isinstance(workflow_obj, dict):
+            extracted = self._extract_prompt_from_workflow(workflow_obj)
+            if extracted:
+                return extracted
+
+        # 3) A1111/generic fields fallback
+        for key in ("prompt", "parameters", "Description", "description", "Comment", "comment"):
+            raw_value = metadata.get(key, None)
+            if raw_value is None:
+                continue
+            text_value = str(raw_value).strip()
+            if not text_value:
+                continue
+            if key == "parameters":
+                return text_value.split("Negative prompt:", 1)[0].strip()
+            return text_value
+
+        return ""
+
+    def _extract_prompt_from_comfy_prompt(self, prompt_obj):
+        if not isinstance(prompt_obj, dict):
+            return ""
+
+        preferred = []
+        fallback = []
+        for node_data in prompt_obj.values():
+            if not isinstance(node_data, dict):
+                continue
+
+            class_type = str(node_data.get("class_type", ""))
+            inputs = node_data.get("inputs", {})
+            if not isinstance(inputs, dict):
+                continue
+
+            text_val = inputs.get("text", None)
+            if isinstance(text_val, str) and text_val.strip():
+                if "CLIPTextEncode" in class_type:
+                    preferred.append(text_val.strip())
+                else:
+                    fallback.append(text_val.strip())
+
+        if preferred:
+            return preferred[0]
+        if fallback:
+            return fallback[0]
+        return ""
+
+    def _extract_prompt_from_workflow(self, workflow_obj):
+        nodes = workflow_obj.get("nodes", None)
+        if not isinstance(nodes, list):
+            return ""
+
+        preferred = []
+        fallback = []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+
+            node_type = str(node.get("type", ""))
+            widgets_values = node.get("widgets_values", None)
+            if not isinstance(widgets_values, list):
+                continue
+
+            string_values = [v.strip() for v in widgets_values if isinstance(v, str) and v.strip()]
+            if not string_values:
+                continue
+
+            if "CLIPTextEncode" in node_type:
+                preferred.extend(string_values)
+            else:
+                fallback.extend(string_values)
+
+        if preferred:
+            return preferred[0]
+        if fallback:
+            return fallback[0]
+        return ""
+
+    def _try_parse_json_object(self, value):
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                return None
+        return None
 
 
 class LoadSingleImageFromPath:
