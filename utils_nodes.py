@@ -45,7 +45,7 @@ class BatchLoadImages:
     RETURN_TYPES = ("IMAGE", "STRING", "STRING", "STRING")
     RETURN_NAMES = ("image", "filename_text", "raw_metadata", "prompt_text")
     FUNCTION = "load_batch_images"
-    CATEGORY = "?? SnJake/Utils"
+    CATEGORY = "😎 SnJake/Utils"
 
     # ???????? ??? 'incremental_image' (label -> index)
     incremental_counters = {}
@@ -729,3 +729,4 @@ class RandomFloatNode:
         # Округляем до 2 знаков после запятой, чтобы, например, 0.53228 превратилось в 0.53
         result = round(value, 2)
         return (result,)
+
