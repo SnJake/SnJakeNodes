@@ -159,7 +159,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeNumberNode": "😎 Number Node",
     "SnJakeTextConcatenate": "😎 Text Concatenate",
     "SnJakeMultilineText": "😎 Multiline Text",
-    "SnJakeResizeIfLarger": "😎 Resize If Larger",
+    "SnJakeResizeIfLarger": "😎 Resize If Larger/Smaller",
     "QwenImageResolutionCalc": "😎 Qwen-Image Resolution Calc",
     "HunyuanImageResolutionCalc": "😎 Hunyuan Image Resolution Calc",
     "SnJakeInteractiveCropLoader": "😎 Load & Crop Image",
@@ -173,15 +173,3 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
-
-
-
-
-
-
-
-
-
-
-
-
