@@ -47,8 +47,11 @@ class BatchLoadImages:
     FUNCTION = "load_batch_images"
     CATEGORY = "😎 SnJake/Utils"
 
-    # ???????? ??? 'incremental_image' (label -> index)
+    # Internal state for incremental mode.
+    # label -> next index to use
     incremental_counters = {}
+    # label -> last seen seed
+    incremental_last_seed = {}
 
     def load_batch_images(
         self,
@@ -80,6 +83,16 @@ class BatchLoadImages:
         elif mode == "incremental_image":
             if label not in self.incremental_counters:
                 self.incremental_counters[label] = 0
+
+            last_seed = self.incremental_last_seed.get(label, None)
+            # If seed was changed manually (jumped or moved back), sync sequence to seed.
+            # This makes "seed incremental" deterministic and allows reset to 0 -> first image.
+            if last_seed is None:
+                if seed > 0:
+                    self.incremental_counters[label] = seed
+            elif seed < last_seed or seed > (last_seed + 1):
+                self.incremental_counters[label] = seed
+
             chosen_index = self.incremental_counters[label]
 
             # ???? ???????? ?????
@@ -96,6 +109,7 @@ class BatchLoadImages:
 
             # ??????? ?????? ?? ????????? ??????
             self.incremental_counters[label] += 1
+            self.incremental_last_seed[label] = seed
 
         else:  # mode == 'random'
             random.seed(seed)
@@ -729,4 +743,3 @@ class RandomFloatNode:
         # Округляем до 2 знаков после запятой, чтобы, например, 0.53228 превратилось в 0.53
         result = round(value, 2)
         return (result,)
-
