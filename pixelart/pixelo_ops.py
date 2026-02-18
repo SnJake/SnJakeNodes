@@ -144,7 +144,7 @@ def find_representative_pixel_lab(lab_patch):
     # Calculate L channel stats
     l_min_val, l_min_idx = torch.min(l_flat, dim=0)
     l_max_val, l_max_idx = torch.max(l_flat, dim=0)
-    l_median_val = torch.median(l_flat).values # Получаем 0-мерный тензор значения медианы
+    l_median_val = torch.median(l_flat)
     # l_mean_val = torch.mean(l_flat.float()) # Not directly used in simplified logic
 
     # Find center pixel index (approximate)
@@ -198,59 +198,43 @@ def contrast_aware_downsample(image_rgb, pixel_size):
     target_h = max(1, H // pixel_size)
     target_w = max(1, W // pixel_size)
 
-    # Convert to LAB
     try:
-        image_lab = kc.rgb_to_lab(image_rgb_float) # (B, 3, H, W)
+        image_lab = kc.rgb_to_lab(image_rgb_float)
     except Exception as e:
         print(f"Error converting to LAB: {e}. Falling back to standard downsampling.")
-        # Fallback to nearest neighbor downscale
         return F.interpolate(image_rgb, size=(target_h, target_w), mode='nearest')
 
-    # Prepare output tensor
-    downscaled_lab = torch.zeros((B, 3, target_h, target_w), device=device, dtype=image_lab.dtype)
+    block_h = H if H < pixel_size else pixel_size
+    block_w = W if W < pixel_size else pixel_size
+    used_h = min(H, target_h * block_h)
+    used_w = min(W, target_w * block_w)
 
-    # Iterate over the target downscaled grid
-    for b in range(B):
-        for y_out in range(target_h):
-            for x_out in range(target_w):
-                # Define the input patch boundaries
-                y_start = y_out * pixel_size
-                y_end = min((y_out + 1) * pixel_size, H)
-                x_start = x_out * pixel_size
-                x_end = min((x_out + 1) * pixel_size, W)
+    image_lab_crop = image_lab[:, :, :used_h, :used_w]
+    patches = image_lab_crop.unfold(2, block_h, block_h).unfold(3, block_w, block_w)
+    patches = patches.contiguous().permute(0, 2, 3, 1, 4, 5).reshape(B, target_h, target_w, 3, block_h * block_w)
 
-                if y_start >= y_end or x_start >= x_end: continue # Skip empty patches
+    l_flat = patches[:, :, :, 0, :]
+    l_min, l_min_idx = torch.min(l_flat, dim=-1)
+    l_max, l_max_idx = torch.max(l_flat, dim=-1)
+    l_median = torch.median(l_flat, dim=-1).values
 
-                # Extract the LAB patch for this output pixel
-                lab_patch = image_lab[b, :, y_start:y_end, x_start:x_end] # (3, patch_h, patch_w)
+    center_idx = min((block_h // 2) * block_w + (block_w // 2), block_h * block_w - 1)
+    selected_idx = torch.full_like(l_min_idx, center_idx)
+    skew_low = (l_median - l_min) > (l_max - l_median)
+    skew_high = (l_max - l_median) > (l_median - l_min)
+    selected_idx = torch.where(skew_low, l_min_idx, selected_idx)
+    selected_idx = torch.where(skew_high, l_max_idx, selected_idx)
 
-                # --- L Channel Processing ---
-                # Select the representative pixel based on L channel stats
-                selected_lab_pixel = find_representative_pixel_lab(lab_patch)
-                downscaled_lab[b, :, y_out, x_out] = selected_lab_pixel # Assign selected pixel
+    gather_idx = selected_idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, 3, 1)
+    downscaled_lab = torch.gather(patches, 4, gather_idx).squeeze(-1).permute(0, 3, 1, 2).contiguous()
 
-                # --- A and B Channel Processing (Original PixelOE description says median filter) ---
-                # Let's stick to the logic of find_representative_pixel_lab selecting the *whole* LAB pixel
-                # If we wanted separate median filtering for A/B:
-                # if lab_patch[1,:,:].numel() > 0:
-                #     a_median = torch.median(lab_patch[1, :, :].reshape(-1))[0]
-                # else:
-                #     a_median = torch.tensor(0.0, device=device, dtype=dtype)
-                # if lab_patch[2,:,:].numel() > 0:
-                #     b_median = torch.median(lab_patch[2, :, :].reshape(-1))[0]
-                # else:
-                #     b_median = torch.tensor(0.0, device=device, dtype=dtype)
-                # # Assign L from find_pixel, A/B from median
-                # downscaled_lab[b, 0, y_out, x_out] = selected_lab_pixel[0]
-                # downscaled_lab[b, 1, y_out, x_out] = a_median
-                # downscaled_lab[b, 2, y_out, x_out] = b_median
-
-    # Convert back to RGB
     try:
         downscaled_rgb = kc.lab_to_rgb(downscaled_lab).clamp(0.0, 1.0)
     except Exception as e:
-        print(f"Error converting back to RGB: {e}. Returning LAB (may cause issues downstream).")
-        downscaled_rgb = downscaled_lab # Return LAB if conversion fails
+        print(f"Error converting back to RGB: {e}. Returning nearest fallback.")
+        return F.interpolate(image_rgb, size=(target_h, target_w), mode='nearest')
 
     print("PixelOE Contrast-Aware Downsampling finished.")
-    return downscaled_rgb.to(dtype) # Convert back to original dtype
+    return downscaled_rgb.to(dtype)
+
+# --- END OF FILE pixelart/pixelo_ops.py ---

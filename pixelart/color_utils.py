@@ -23,6 +23,7 @@ def to_quantize_space(image, space):
 
 def from_quantize_space(image, space):
     """Converts image from quantization space back to RGB [0,1]."""
+    # (Скопируйте код _from_quantize_space из вашего узла)
     image = image.float() # Вход - данные в `space`
     try:
         if space == "RGB": return image.clamp(0, 1) # На всякий случай clamp
@@ -129,4 +130,3 @@ def calculate_dbi(pixels, labels, centroids):
         return float('inf')
 
     return final_dbi
-

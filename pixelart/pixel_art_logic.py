@@ -494,18 +494,12 @@ def run_color_quantization(image_in_space, num_colors, method, min_pixel_area, m
 
             # --- Вызов метода квантования ---
             if labels is None:
-                # Wu/Octree требуют RGB, конвертируем туда и обратно
-                if method == "wu" or method == "octree":
-                    # Wu не реализован, используем Octree (который fallback на kmeans)
+                if method == "octree":
                      print(f"Quantizing with {method} (RGB internally)...")
                      pixels_rgb_0_1 = from_quantize_space(pixels.unsqueeze(0).unsqueeze(-1).unsqueeze(-1), processing_space).squeeze().clamp(0,1)
                      if pixels_rgb_0_1.ndim == 1: pixels_rgb_0_1 = pixels_rgb_0_1.unsqueeze(0)
 
-                     if method == "octree":
-                         labels, centroids_rgb_0_1 = octree_quantization_impl(pixels_rgb_0_1, effective_num_colors)
-                     else: # Wu - заглушка
-                         print("Wu quantization not implemented, using Octree fallback.")
-                         labels, centroids_rgb_0_1 = octree_quantization_impl(pixels_rgb_0_1, effective_num_colors)
+                     labels, centroids_rgb_0_1 = octree_quantization_impl(pixels_rgb_0_1, effective_num_colors)
 
                      # Конвертируем центроиды обратно в рабочее пространство
                      centroids_in_processing_space = to_quantize_space(centroids_rgb_0_1.unsqueeze(0).unsqueeze(-1).unsqueeze(-1), processing_space).squeeze()

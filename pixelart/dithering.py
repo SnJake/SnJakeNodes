@@ -45,11 +45,13 @@ def apply_dithering(
     dither_pattern,
     dither_strength,
     color_distance_threshold,
-    apply_fixed_palette_func # Function to map image to palette
+    apply_fixed_palette_func=None
     ):
     """Applies dithering to an image using a specified palette. Operates entirely in RGB."""
     B, C, H, W = image_rgb_source.shape
     device = image_rgb_source.device
+    if apply_fixed_palette_func is None:
+        from .quantization import apply_fixed_palette as apply_fixed_palette_func
 
     if palette_rgb is None or palette_rgb.shape[0] < 1:
         print("Warning: Dithering requires a palette. Skipping.")
@@ -102,6 +104,7 @@ def apply_dithering(
         threshold_sq = -1.0
         if color_distance_threshold > 0:
             threshold_sq = color_distance_threshold ** 2
+        palette_rgb_float = palette_rgb.float()
 
         output_batch = []
         for b in range(B):
@@ -118,10 +121,10 @@ def apply_dithering(
 
                     # Find NEAREST color in the palette (RGB space assumed)
                     # Ensure palette is float
-                    diff = palette_rgb.float() - old_pixel.unsqueeze(0) # Use broadcasting
+                    diff = palette_rgb_float - old_pixel.unsqueeze(0) # Use broadcasting
                     distances_sq = torch.sum(diff * diff, dim=1)
                     min_dist_sq, closest_index = torch.min(distances_sq, dim=0)
-                    new_pixel = palette_rgb[closest_index].float() # Ensure float
+                    new_pixel = palette_rgb_float[closest_index]
 
                     current_output_image[:, y, x] = new_pixel # Assign palette color
 

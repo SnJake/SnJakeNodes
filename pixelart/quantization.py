@@ -20,6 +20,21 @@ COLOR_SPACE_RANGES = {
     "YCbCr": torch.tensor([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]), # Approx. after conversion
 }
 
+def _nearest_palette_labels(pixels, palette, chunk_size=262144):
+    num_pixels = pixels.shape[0]
+    if num_pixels == 0:
+        return torch.empty(0, dtype=torch.long, device=pixels.device)
+    if num_pixels <= chunk_size:
+        distances = torch.cdist(pixels.float(), palette.float())
+        return torch.argmin(distances, dim=1)
+    labels = torch.empty(num_pixels, dtype=torch.long, device=pixels.device)
+    palette_float = palette.float()
+    for start in range(0, num_pixels, chunk_size):
+        end = min(start + chunk_size, num_pixels)
+        distances = torch.cdist(pixels[start:end].float(), palette_float)
+        labels[start:end] = torch.argmin(distances, dim=1)
+    return labels
+
 def apply_fixed_palette(image_in_space, palette_in_space):
     """Applies a fixed palette using nearest color search in the feature space."""
     B, C, H, W = image_in_space.shape
@@ -39,8 +54,7 @@ def apply_fixed_palette(image_in_space, palette_in_space):
 
     # Find the closest palette color index for each pixel in the current feature space
     # Ensure both are float32 for cdist
-    distances = torch.cdist(pixels.float(), palette_in_space.float())
-    labels = torch.argmin(distances, dim=1)  # Shape: (B*H*W)
+    labels = _nearest_palette_labels(pixels, palette_in_space)
 
     # Map pixels to palette colors using the indices
     quantized_pixels = palette_in_space[labels]
@@ -59,8 +73,7 @@ def apply_fixed_palette_get_labels(image_in_space, palette_in_space):
 
     pixels = image_in_space.permute(0, 2, 3, 1).reshape(-1, C)
     # Ensure float32 for cdist
-    distances = torch.cdist(pixels.float(), palette_in_space.float())
-    labels = torch.argmin(distances, dim=1)
+    labels = _nearest_palette_labels(pixels, palette_in_space)
     quantized_pixels = palette_in_space[labels]
     quantized_image = quantized_pixels.view(B, H, W, C).permute(0, 3, 1, 2)
 
@@ -535,232 +548,6 @@ def median_cut_quantization(pixels_in_space, num_colors):
 
     return labels, centroids
 
-def wu_quantization(pixels_rgb_0_1: torch.Tensor, num_colors: int):
-    """Performs Wu quantization (expects and returns RGB [0,1])."""
-    device = pixels_rgb_0_1.device
-    dtype = pixels_rgb_0_1.dtype
-    num_pixels, channels = pixels_rgb_0_1.shape
-
-    if channels != 3:
-        raise ValueError("Wu quantization requires RGB input (3 channels).")
-    if num_pixels == 0:
-        return torch.empty(0, dtype=torch.long, device=device), \
-               torch.empty((0, 3), dtype=dtype, device=device)
-
-    unique_colors_rgb, inverse_indices = torch.unique(pixels_rgb_0_1, dim=0, return_inverse=True)
-    num_unique = unique_colors_rgb.shape[0]
-
-    if num_colors <= 1:
-        centroid = pixels_rgb_0_1.mean(dim=0, keepdim=True)
-        labels = torch.zeros(num_pixels, dtype=torch.long, device=device)
-        return labels, centroid.to(dtype)
-    elif num_unique <= num_colors:
-        return inverse_indices, unique_colors_rgb.to(dtype)
-
-
-    SIZE = 33 # Histogram size (index 0 unused, 1-32 used)
-    MAX_COLOR = 255.0 # Use float for scaling
-    # Convert pixels to integer indices [1, 32]
-    # Ensure input is float before scaling
-    pixels_int = (pixels_rgb_0_1.float() * MAX_COLOR).round().long().clamp(0, 255)
-    r_idx = (pixels_int[:, 0] >> 3) + 1
-    g_idx = (pixels_int[:, 1] >> 3) + 1
-    b_idx = (pixels_int[:, 2] >> 3) + 1
-    # Combine indices for 3D histogram (use tuple for indexing)
-    indices = (r_idx, g_idx, b_idx)
-
-    # --- Calculate moments using scatter_add for unique indices ---
-    unique_idx_flat, inverse_map, counts = torch.unique(
-        r_idx * SIZE * SIZE + g_idx * SIZE + b_idx, return_inverse=True, return_counts=True
-    )
-
-    # Convert flat unique indices back to 3D
-    unique_b = unique_idx_flat % SIZE
-    unique_g = (unique_idx_flat // SIZE) % SIZE
-    unique_r = unique_idx_flat // (SIZE * SIZE)
-    unique_indices_3d = (unique_r, unique_g, unique_b)
-
-    # Allocate moment tensors (use float64 for sums to avoid overflow)
-    wt = torch.zeros((SIZE, SIZE, SIZE), dtype=torch.float64, device=device)
-    mr = torch.zeros_like(wt)
-    mg = torch.zeros_like(wt)
-    mb = torch.zeros_like(wt)
-    m2 = torch.zeros_like(wt)
-
-    # Put counts into wt
-    wt.index_put_(unique_indices_3d, counts.double())
-
-    # Calculate sums for each unique bin using scatter_add_ on the inverse map
-    pixels_long = pixels_int.long() # For sums
-    pixels_double = pixels_int.double() # For squared sums
-
-    sum_r = torch.zeros_like(unique_idx_flat, dtype=torch.float64).scatter_add_(0, inverse_map, pixels_double[:, 0])
-    sum_g = torch.zeros_like(unique_idx_flat, dtype=torch.float64).scatter_add_(0, inverse_map, pixels_double[:, 1])
-    sum_b = torch.zeros_like(unique_idx_flat, dtype=torch.float64).scatter_add_(0, inverse_map, pixels_double[:, 2])
-    sum_sq = torch.zeros_like(unique_idx_flat, dtype=torch.float64).scatter_add_(0, inverse_map, (pixels_double**2).sum(dim=1))
-
-    # Put sums into moment tensors
-    mr.index_put_(unique_indices_3d, sum_r)
-    mg.index_put_(unique_indices_3d, sum_g)
-    mb.index_put_(unique_indices_3d, sum_b)
-    m2.index_put_(unique_indices_3d, sum_sq)
-
-    # --- Calculate 3D prefix sums (moment volumes) ---
-    def prefix_sum_3d(tensor):
-        out = tensor
-        for d in range(3):
-            out = torch.cumsum(out, dim=d)
-        return out
-
-    Vwt = prefix_sum_3d(wt)
-    Vmr = prefix_sum_3d(mr)
-    Vmg = prefix_sum_3d(mg)
-    Vmb = prefix_sum_3d(mb)
-    Vm2 = prefix_sum_3d(m2)
-
-    # --- WuBox Class (needs access to Vwt, Vmr, etc.) ---
-    class WuBox:
-        # Ensure Vwt etc. are accessible (passed in or global within function scope)
-        _Vwt, _Vmr, _Vmg, _Vmb, _Vm2 = Vwt, Vmr, Vmg, Vmb, Vm2
-
-        def __init__(self, r0=0, r1=0, g0=0, g1=0, b0=0, b1=0):
-            self.r0, self.r1 = r0, r1 # Inclusive indices [1, SIZE-1]
-            self.g0, self.g1 = g0, g1
-            self.b0, self.b1 = b0, b1
-            self.calculate_stats() # Pass cumulative sums implicitly
-
-        def vol_sum(self, M):
-            # Helper to get volume sum from cumulative tensor M
-            r0, r1 = self.r0, self.r1
-            g0, g1 = self.g0, self.g1
-            b0, b1 = self.b0, self.b1
-            # Use V* tensors defined in the outer scope
-            s = M[r1, g1, b1].clone()
-            s -= M[r0-1, g1, b1] if r0 > 0 else 0
-            s -= M[r1, g0-1, b1] if g0 > 0 else 0
-            s -= M[r1, g1, b0-1] if b0 > 0 else 0
-            s += M[r0-1, g0-1, b1] if r0 > 0 and g0 > 0 else 0
-            s += M[r0-1, g1, b0-1] if r0 > 0 and b0 > 0 else 0
-            s += M[r1, g0-1, b0-1] if g0 > 0 and b0 > 0 else 0
-            s -= M[r0-1, g0-1, b0-1] if r0 > 0 and g0 > 0 and b0 > 0 else 0
-            return s
-
-        def calculate_stats(self):
-            self.weight = self.vol_sum(WuBox._Vwt)
-            if self.weight > 1e-9:
-                self.r_sum = self.vol_sum(WuBox._Vmr)
-                self.g_sum = self.vol_sum(WuBox._Vmg)
-                self.b_sum = self.vol_sum(WuBox._Vmb)
-                self.sq_sum = self.vol_sum(WuBox._Vm2)
-                variance = self.sq_sum - (self.r_sum**2 + self.g_sum**2 + self.b_sum**2) / self.weight
-                self.variance = max(0.0, variance.item())
-                self.avg_r = self.r_sum / self.weight
-                self.avg_g = self.g_sum / self.weight
-                self.avg_b = self.b_sum / self.weight
-            else:
-                self.weight = 0.0
-                self.r_sum = self.g_sum = self.b_sum = self.sq_sum = 0.0
-                self.variance = 0.0
-                self.avg_r = (self.r0 + self.r1) / 2.0 # Center index
-                self.avg_g = (self.g0 + self.g1) / 2.0
-                self.avg_b = (self.b0 + self.b1) / 2.0
-
-        def __lt__(self, other):
-            return self.variance < other.variance # Sort by variance ascending
-
-    # --- Iterative Box Cutting ---
-    initial_box = WuBox(1, SIZE - 1, 1, SIZE - 1, 1, SIZE - 1)
-    boxes = [initial_box]
-
-    if initial_box.weight <= 1e-9:
-        print("Wu Warning: Initial box is empty.")
-        return torch.empty(0, dtype=torch.long, device=device), torch.empty((0, 3), dtype=dtype, device=device)
-
-    num_final_boxes = 1
-    while num_final_boxes < num_colors:
-        boxes.sort() # Highest variance last
-        if not boxes: break
-        box_to_split = boxes.pop()
-        num_final_boxes -= 1
-
-        if box_to_split.weight <= 1e-9 or box_to_split.variance < 1e-9 : # Don't split empty or zero-variance boxes
-            boxes.append(box_to_split) # Put it back
-            num_final_boxes += 1
-            break # No more meaningful splits possible
-
-        best_dir = -1
-        best_pos = -1
-        max_variance_decrease = -float('inf')
-
-        # Iterate through dimensions R, G, B to find the best split
-        for direction in range(3):
-            if direction == 0: d0, d1 = box_to_split.r0, box_to_split.r1
-            elif direction == 1: d0, d1 = box_to_split.g0, box_to_split.g1
-            else: d0, d1 = box_to_split.b0, box_to_split.b1
-
-            if d0 >= d1: continue # Cannot split if dimension has size 0 or 1
-
-            # Iterate through possible cut positions *within* the box
-            for cut_pos in range(d0 + 1, d1 + 1):
-                if direction == 0:
-                    box1 = WuBox(box_to_split.r0, cut_pos - 1, box_to_split.g0, box_to_split.g1, box_to_split.b0, box_to_split.b1)
-                    box2 = WuBox(cut_pos, box_to_split.r1, box_to_split.g0, box_to_split.g1, box_to_split.b0, box_to_split.b1)
-                elif direction == 1:
-                    box1 = WuBox(box_to_split.r0, box_to_split.r1, box_to_split.g0, cut_pos - 1, box_to_split.b0, box_to_split.b1)
-                    box2 = WuBox(box_to_split.r0, box_to_split.r1, cut_pos, box_to_split.g1, box_to_split.b0, box_to_split.b1)
-                else:
-                    box1 = WuBox(box_to_split.r0, box_to_split.r1, box_to_split.g0, box_to_split.g1, box_to_split.b0, cut_pos - 1)
-                    box2 = WuBox(box_to_split.r0, box_to_split.r1, box_to_split.g0, box_to_split.g1, cut_pos, box_to_split.b1)
-
-                if box1.weight > 1e-9 and box2.weight > 1e-9:
-                    variance_decrease = box_to_split.variance - (box1.variance + box2.variance)
-                    if variance_decrease > max_variance_decrease:
-                        max_variance_decrease = variance_decrease
-                        best_dir = direction
-                        best_pos = cut_pos
-
-        # Perform the best split if found
-        if best_dir != -1:
-            if best_dir == 0:
-                box1 = WuBox(box_to_split.r0, best_pos - 1, box_to_split.g0, box_to_split.g1, box_to_split.b0, box_to_split.b1)
-                box2 = WuBox(best_pos, box_to_split.r1, box_to_split.g0, box_to_split.g1, box_to_split.b0, box_to_split.b1)
-            elif best_dir == 1:
-                box1 = WuBox(box_to_split.r0, box_to_split.r1, box_to_split.g0, best_pos - 1, box_to_split.b0, box_to_split.b1)
-                box2 = WuBox(box_to_split.r0, box_to_split.r1, best_pos, box_to_split.g1, box_to_split.b0, box_to_split.b1)
-            else:
-                box1 = WuBox(box_to_split.r0, box_to_split.r1, box_to_split.g0, box_to_split.g1, box_to_split.b0, best_pos - 1)
-                box2 = WuBox(box_to_split.r0, box_to_split.r1, box_to_split.g0, box_to_split.g1, best_pos, box_to_split.b1)
-
-            if box1.weight > 1e-9: boxes.append(box1); num_final_boxes += 1
-            if box2.weight > 1e-9: boxes.append(box2); num_final_boxes += 1
-            # Handle case where split results in only one valid box
-            if box1.weight <= 1e-9 and box2.weight > 1e-9: boxes.append(box2); num_final_boxes += 1
-            if box2.weight <= 1e-9 and box1.weight > 1e-9: boxes.append(box1); num_final_boxes += 1
-
-        else:
-            # If no split possible, put the box back and stop
-            boxes.append(box_to_split)
-            num_final_boxes += 1
-            print(f"Warning: Wu quantization could not split box further. Stopping at {num_final_boxes} colors.")
-            break
-
-    # --- Generate palette and assign labels ---
-    centroids_int_avg = torch.tensor([[box.avg_r, box.avg_g, box.avg_b] for box in boxes if box.weight > 1e-9],
-                                     dtype=torch.float64, device=device)
-
-    if centroids_int_avg.shape[0] == 0:
-        print("Wu Warning: No valid centroids found after splitting.")
-        return torch.empty(0, dtype=torch.long, device=device), torch.empty((0, 3), dtype=dtype, device=device)
-
-    # Convert centroids back to [0, 1] float range
-    centroids_rgb_0_1 = (centroids_int_avg / MAX_COLOR).clamp(0.0, 1.0).to(dtype) # Convert back to original dtype
-
-    # Assign original pixels (float RGB 0-1) to the nearest final centroid (float RGB 0-1)
-    distances = torch.cdist(pixels_rgb_0_1.float(), centroids_rgb_0_1.float())
-    labels = torch.argmin(distances, dim=1)
-
-    return labels, centroids_rgb_0_1
-
 def octree_quantization_impl(pixels_rgb_0_1: torch.Tensor, num_colors: int):
     """Placeholder for Octree quantization."""
     print("Warning: Octree quantization not implemented, using K-Means fallback.")
@@ -1013,12 +800,6 @@ def run_color_quantization(
                 labels, centroids = kmeans_quantization(pixels, final_num_colors, kmeans_max_iter)
             elif method_clean == "median_cut":
                 labels, centroids = median_cut_quantization(pixels, final_num_colors)
-            elif method_clean == "wu":
-                pixels_rgb = from_quantize_space(pixels.unsqueeze(0).unsqueeze(-1).unsqueeze(-1), processing_space).squeeze()
-                if pixels_rgb.ndim == 1: pixels_rgb = pixels_rgb.unsqueeze(0)
-                labels, centroids_rgb = wu_quantization(pixels_rgb, final_num_colors)
-                centroids = to_quantize_space(centroids_rgb.unsqueeze(0).unsqueeze(-1).unsqueeze(-1), processing_space).squeeze()
-                if centroids.ndim == 1: centroids = centroids.unsqueeze(0)
             elif method_clean == "octree":
                 pixels_rgb = from_quantize_space(pixels.unsqueeze(0).unsqueeze(-1).unsqueeze(-1), processing_space).squeeze()
                 if pixels_rgb.ndim == 1: pixels_rgb = pixels_rgb.unsqueeze(0)

@@ -104,7 +104,7 @@ class ExtractPaletteNode:
                         sq_learning_rate_decay_time # Специфично для SQ
                         ):
 
-        device = get_torch_device()
+        device = image.device if isinstance(image, torch.Tensor) else get_torch_device()
         print(f"[ExtractPaletteNode] Input image initial device: {image.device}, Target device: {device}")
 
         if not LOGIC_IMPORTED:
@@ -140,16 +140,17 @@ class ExtractPaletteNode:
         # --- Определяем рабочее пространство ---
         # (Та же логика, что и в PixelArtNode)
         processing_space = color_space
-        is_metric_sensitive_method = method in ["kmeans", "median_cut", "sq"] # Методы, чувствительные к метрике
+        method_clean = method.strip().lower()
+        is_metric_sensitive_method = method_clean in ["kmeans", "median_cut", "sq"] # Методы, чувствительные к метрике
         if color_space == "HSV" and is_metric_sensitive_method:
              print(f"[ExtractPaletteNode] Warning: Using HSV with '{method}' is unreliable. Forcing RGB for calculations.")
              processing_space = "RGB"
         # Octree fallback (kmeans) работает в processing_space
-        elif method == "octree" and color_space != "RGB":
+        elif method_clean == "octree" and color_space != "RGB":
              print(f"[ExtractPaletteNode] Note: Method '{method}' (fallback to kmeans) will use {color_space} space as requested.")
              # Fallback (kmeans) будет работать в выбранном пространстве
 
-        print(f"[ExtractPaletteNode] Extracting palette using '{method}' in {processing_space} space (User selected: {color_space}).")
+        print(f"[ExtractPaletteNode] Extracting palette using '{method_clean}' in {processing_space} space (User selected: {color_space}).")
 
         final_centroids_rgb = None
         try:
@@ -160,7 +161,7 @@ class ExtractPaletteNode:
             # 2. Собираем параметры для квантования
             quant_params = {
                 "num_colors": num_colors,
-                "method": method,
+                "method": method_clean,
                 "min_pixel_area": min_pixel_area,
                 "processing_space": processing_space,
                 "auto_num_colors": False, # Не используем авто K здесь
@@ -231,7 +232,7 @@ class ApplyPaletteNode:
         }
 
     def apply_palette(self, image, palette_tensor, dithering, dither_pattern, dither_strength, color_space, color_distance_threshold):
-        device = get_torch_device()
+        device = image.device if isinstance(image, torch.Tensor) else get_torch_device()
         print(f"[ApplyPaletteNode] Input image initial device: {image.device}, Target device: {device}")
 
         if not LOGIC_IMPORTED:
@@ -258,7 +259,7 @@ class ApplyPaletteNode:
         result_image_chw = torch.zeros_like(image_chw)
 
         # --- Выбор метода: Дизеринг или Прямое Сопоставление ---
-        use_dither = dithering and dither_pattern != "No Dithering" and dither_strength > 0 and palette_rgb.shape[0] >= 2
+        use_dither = dithering and dither_pattern != "No Dithering" and dither_strength > 0
         if use_dither:
             # --- Дизеринг (всегда работает в RGB) ---
             print("  - Applying dithering...")
@@ -271,7 +272,7 @@ class ApplyPaletteNode:
                     dither_pattern,
                     dither_strength,
                     color_distance_threshold,
-                    #apply_fixed_palette_func=apply_fixed_palette # Передаем функцию как аргумент
+                    apply_fixed_palette,
                 )
             except Exception as e:
                  print(f"[ApplyPaletteNode] Error during dithering: {e}")
@@ -371,7 +372,7 @@ class ReplacePaletteColorsNode:
 
 
     def replace_colors(self, image, source_palette, replacement_palette, sort_method, mismatch_handling, tolerance):
-        device = get_torch_device()
+        device = image.device if isinstance(image, torch.Tensor) else get_torch_device()
         print(f"[ReplacePalette] Input image device: {image.device}, Target device: {device}")
 
         # --- Проверки входов ---
@@ -396,7 +397,7 @@ class ReplacePaletteColorsNode:
         print(f"[ReplacePalette] Original counts: Source={n_source_orig}, Replacement={n_replace_orig}. Sort: {sort_method}")
 
         # --- Сортировка палитр ---
-        sorted_source_palette, source_sort_indices = self._sort_palette(source_palette, sort_method, device)
+        sorted_source_palette, _ = self._sort_palette(source_palette, sort_method, device)
         sorted_replacement_palette, _ = self._sort_palette(replacement_palette, sort_method, device) # Индексы донора не нужны
 
         n_source = sorted_source_palette.shape[0]
@@ -412,6 +413,9 @@ class ReplacePaletteColorsNode:
             elif mismatch_handling == "Trim Replacement":
                 final_replacement_palette = sorted_replacement_palette[:n_source]
             elif mismatch_handling == "Repeat Replacement":
+                if n_replace == 0:
+                    print("ERROR: Replacement palette is empty.")
+                    return (image,)
                 repeat_times = math.ceil(n_source / n_replace) # Сколько раз повторить
                 final_replacement_palette = sorted_replacement_palette.repeat(repeat_times, 1)[:n_source]
 
@@ -436,7 +440,7 @@ class ReplacePaletteColorsNode:
 
             # Находим пиксели, соответствующие этому исходному цвету с допуском
             # Используем евклидово расстояние или L1 для скорости? L1 (sum(abs(diff))) проще.
-            diff = torch.abs(output_image_chw - src_color_tensor.view(1, C, 1, 1)) # B, C, H, W
+            diff = torch.abs(image_chw - src_color_tensor.view(1, C, 1, 1)) # B, C, H, W
             # mask = torch.sum(diff, dim=1) < tolerance # Сумма абсолютных разностей < tolerance?
             # Более надежно - L2 расстояние (корень не нужен, сравним квадрат)
             dist_sq = torch.sum(diff**2, dim=1) # B, H, W
