@@ -71,8 +71,8 @@ class YoloModelLoader:
 class YoloInference:
     CATEGORY = "😎 SnJake/YOLO"
     FUNCTION = "infer"
-    RETURN_TYPES = ("IMAGE", "MASK", BBOX_TYPE)
-    RETURN_NAMES = ("image_with_bboxes", "mask", "bboxes")
+    RETURN_TYPES = ("IMAGE", "MASK", BBOX_TYPE, "SAM3_BOXES_PROMPT")
+    RETURN_NAMES = ("image_with_bboxes", "mask", "bboxes", "sam3_positive_boxes")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -130,6 +130,50 @@ class YoloInference:
             
         return torch.from_numpy(np.array(img_pil).astype(np.float32) / 255.0)
 
+    @staticmethod
+    def _to_sam3_boxes_prompt(boxes: List[Dict], image_h: int, image_w: int):
+        """
+        Convert YOLO xyxy pixel boxes into SAM3_BOXES_PROMPT:
+        {
+            "boxes": [[center_x, center_y, width, height], ...],  # normalized 0..1
+            "labels": [True, ...]  # positive prompts
+        }
+        """
+        if image_h <= 0 or image_w <= 0:
+            return {"boxes": [], "labels": []}
+
+        sam3_boxes = []
+        sam3_labels = []
+
+        for b in boxes:
+            x1, y1, x2, y2 = b["xyxy"]
+
+            # Clamp to image bounds and normalize.
+            x1 = max(0.0, min(float(x1), float(image_w)))
+            y1 = max(0.0, min(float(y1), float(image_h)))
+            x2 = max(0.0, min(float(x2), float(image_w)))
+            y2 = max(0.0, min(float(y2), float(image_h)))
+
+            if x2 < x1:
+                x1, x2 = x2, x1
+            if y2 < y1:
+                y1, y2 = y2, y1
+
+            x1_norm = x1 / float(image_w)
+            y1_norm = y1 / float(image_h)
+            x2_norm = x2 / float(image_w)
+            y2_norm = y2 / float(image_h)
+
+            center_x = (x1_norm + x2_norm) * 0.5
+            center_y = (y1_norm + y2_norm) * 0.5
+            width = max(0.0, x2_norm - x1_norm)
+            height = max(0.0, y2_norm - y1_norm)
+
+            sam3_boxes.append([center_x, center_y, width, height])
+            sam3_labels.append(True)
+
+        return {"boxes": sam3_boxes, "labels": sam3_labels}
+
     def infer(self, image, model, conf: float, iou: float, filter_classes: str, mask_bbox_fuzz: int):
         if not hasattr(model, "predict"):
             raise TypeError("Входные данные не являются моделью Ultralytics YOLO")
@@ -176,5 +220,15 @@ class YoloInference:
         else:
              masks_out = torch.stack(batch_mask, dim=0).float()
 
-        return (images_out, masks_out, batch_boxes)
+        sam3_positive_boxes = {"boxes": [], "labels": []}
+        if len(batch_boxes) > 0:
+            # SAM3Grounding consumes one IMAGE; for batched YOLO output expose boxes from the first image.
+            image_h = int(image.shape[1])
+            image_w = int(image.shape[2])
+            sam3_positive_boxes = self._to_sam3_boxes_prompt(batch_boxes[0], image_h, image_w)
+
+            if len(batch_boxes) > 1:
+                print("[YoloInference] Batch size > 1: 'sam3_positive_boxes' is generated from the first image only.")
+
+        return (images_out, masks_out, batch_boxes, sam3_positive_boxes)
 
