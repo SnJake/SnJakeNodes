@@ -404,6 +404,167 @@ class BatchLoadImages:
         return None
 
 
+class BatchLoadTextFiles:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mode": (["single_file", "incremental_file", "random"], {}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 150000}),
+                "label": ("STRING", {"default": "Batch TXT 001"}),
+                "path": ("STRING", {"default": ""}),
+                "pattern": ("STRING", {"default": "*"}),
+                "allow_cycle": (["true", "false"], {"default": "true", "label_on": "Cycle On", "label_off": "Cycle Off"}),
+            },
+            "optional": {
+                "filename_text_extension": (["true", "false"], {"default": "true"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("text", "filename_text")
+    FUNCTION = "load_batch_texts"
+    CATEGORY = "😎 SnJake/Utils"
+
+    incremental_counters = {}
+    incremental_last_seed = {}
+
+    def load_batch_texts(
+        self,
+        path,
+        pattern="*",
+        index=0,
+        mode="single_file",
+        seed=0,
+        label="Batch TXT 001",
+        filename_text_extension="true",
+        allow_cycle="true",
+    ):
+        all_files = self._scan_directory(path, pattern)
+        if not all_files:
+            print(f"[BatchLoadTextFiles] No .txt files found in '{path}' for pattern '{pattern}'")
+            return ("", "")
+
+        if mode == "single_file":
+            if index < 0 or index >= len(all_files):
+                print(f"[BatchLoadTextFiles] Invalid index={index}, available files: {len(all_files)}")
+                return ("", "")
+            chosen_index = index
+        elif mode == "incremental_file":
+            if label not in self.incremental_counters:
+                self.incremental_counters[label] = 0
+
+            last_seed = self.incremental_last_seed.get(label, None)
+            if last_seed is None:
+                if seed > 0:
+                    self.incremental_counters[label] = seed
+            elif seed < last_seed or seed > (last_seed + 1):
+                self.incremental_counters[label] = seed
+
+            chosen_index = self.incremental_counters[label]
+            if chosen_index >= len(all_files):
+                if allow_cycle == "true":
+                    print(f"[BatchLoadTextFiles] End of list for label='{label}' ({chosen_index}). Cycling to 0.")
+                    chosen_index = 0
+                    self.incremental_counters[label] = 0
+                else:
+                    print(f"[BatchLoadTextFiles] End of list for label='{label}'. Blocking output.")
+                    return ("", "")
+
+            self.incremental_counters[label] += 1
+            self.incremental_last_seed[label] = seed
+        else:
+            random.seed(seed)
+            chosen_index = random.randint(0, len(all_files) - 1)
+
+        txt_path = all_files[chosen_index]
+        text_value = self._read_text(txt_path)
+        filename = os.path.basename(txt_path)
+        if filename_text_extension == "false":
+            filename = os.path.splitext(filename)[0]
+
+        return (text_value, filename)
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        if kwargs["mode"] != "single_file":
+            return float("NaN")
+
+        path = kwargs["path"]
+        index = kwargs["index"]
+        pattern = kwargs["pattern"]
+        mode = kwargs["mode"]
+        return (path, pattern, mode, index)
+
+    def _scan_directory(self, directory_path, pattern):
+        files = []
+        for file_name in glob.glob(os.path.join(directory_path, pattern), recursive=True):
+            if os.path.splitext(file_name)[1].lower() == ".txt":
+                files.append(os.path.abspath(file_name))
+        files.sort()
+        return files
+
+    def _read_text(self, file_path):
+        encodings = ["utf-8", "utf-8-sig", "cp1251", "latin-1"]
+        last_error = None
+        for encoding in encodings:
+            try:
+                with open(file_path, "r", encoding=encoding) as f:
+                    return f.read()
+            except Exception as e:
+                last_error = e
+
+        print(f"[BatchLoadTextFiles] Failed to read '{file_path}': {last_error}")
+        return ""
+
+
+class SaveTextToPath:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text": ("STRING", {"default": "", "multiline": True}),
+                "save_path": ("STRING", {"default": "D:\\Stable diffusion\\result_7.txt"}),
+                "append_mode": ("BOOLEAN", {"default": False, "tooltip": "If enabled, appends text instead of overwriting file."}),
+            },
+        }
+
+    RETURN_TYPES = ()
+    RETURN_NAMES = ()
+    FUNCTION = "save_text"
+    CATEGORY = "😎 SnJake/Utils"
+    OUTPUT_NODE = True
+
+    def save_text(self, text, save_path, append_mode=False):
+        if text is None:
+            text = ""
+
+        try:
+            path_obj = Path(save_path.strip().strip('"').strip("'"))
+            full_path = path_obj.resolve()
+            print(f"[SaveTextToPath] Full path: {full_path}")
+        except Exception as e:
+            print(f"[SaveTextToPath] Path error: {e}")
+            return ()
+
+        try:
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(f"[SaveTextToPath] Failed to create directory {full_path.parent}: {e}")
+            return ()
+
+        try:
+            mode = "a" if append_mode else "w"
+            with open(full_path, mode, encoding="utf-8") as f:
+                f.write(str(text))
+            print(f"[SaveTextToPath] Text saved: {full_path}")
+        except Exception as e:
+            print(f"[SaveTextToPath] Save error: {e}")
+
+        return ()
+
+
 class LoadSingleImageFromPath:
     """
     Узел для загрузки ОДНОГО изображения по ПОЛНОМУ пути, включая имя и формат.
