@@ -415,6 +415,8 @@ class BatchLoadTextFiles:
                 "label": ("STRING", {"default": "Batch TXT 001"}),
                 "path": ("STRING", {"default": ""}),
                 "pattern": ("STRING", {"default": "*"}),
+                "filename_filter_enabled": ("BOOLEAN", {"default": False, "tooltip": "Load only .txt files whose filename contains filter text."}),
+                "filename_filter_text": ("STRING", {"default": "", "placeholder": "e.g. cat, prompt, scene_01"}),
                 "allow_cycle": (["true", "false"], {"default": "true", "label_on": "Cycle On", "label_off": "Cycle Off"}),
             },
             "optional": {
@@ -438,12 +440,28 @@ class BatchLoadTextFiles:
         mode="single_file",
         seed=0,
         label="Batch TXT 001",
+        filename_filter_enabled=False,
+        filename_filter_text="",
         filename_text_extension="true",
         allow_cycle="true",
     ):
         all_files = self._scan_directory(path, pattern)
+
+        if filename_filter_enabled and filename_filter_text.strip():
+            filter_text = filename_filter_text.strip().lower()
+            all_files = [
+                f for f in all_files
+                if filter_text in os.path.basename(f).lower()
+            ]
+
         if not all_files:
-            print(f"[BatchLoadTextFiles] No .txt files found in '{path}' for pattern '{pattern}'")
+            if filename_filter_enabled and filename_filter_text.strip():
+                print(
+                    f"[BatchLoadTextFiles] No .txt files found in '{path}' for pattern '{pattern}' "
+                    f"with filename filter '{filename_filter_text}'."
+                )
+            else:
+                print(f"[BatchLoadTextFiles] No .txt files found in '{path}' for pattern '{pattern}'")
             return ("", "")
 
         if mode == "single_file":
@@ -495,7 +513,9 @@ class BatchLoadTextFiles:
         index = kwargs["index"]
         pattern = kwargs["pattern"]
         mode = kwargs["mode"]
-        return (path, pattern, mode, index)
+        filename_filter_enabled = kwargs.get("filename_filter_enabled", False)
+        filename_filter_text = kwargs.get("filename_filter_text", "")
+        return (path, pattern, mode, index, filename_filter_enabled, filename_filter_text)
 
     def _scan_directory(self, directory_path, pattern):
         files = []
