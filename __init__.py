@@ -37,7 +37,7 @@ from .datetime_node import DateTimeToStringNode
 from .detailer_node import DetailerForEachMask
 from .lora_switch import LoraSwitchDynamic
 from .ultralytics import YoloModelLoader, YoloInference
-from .mask_utils import ResizeAllMasks, BlurImageByMasks, OverlayImageByMasks
+from .mask_utils import ResizeAllMasks, BlurImageByMasks, OverlayImageByMasks, MergeMasksToOne
 from .lora_metadata_parser import LoraMetadataParser
 from .switch_nodes import SnJakeAnySwitch, SnJakeImageSwitch, SnJakeMaskSwitch, SnJakeStringSwitch, SnJakeLatentSwitch, SnJakeConditioningSwitch
 from .random_node import SnJakeNumberNode
@@ -92,6 +92,7 @@ NODE_CLASS_MAPPINGS = {
     "ResizeAllMasks": ResizeAllMasks,
     "BlurImageByMasks": BlurImageByMasks,
     "OverlayImageByMasks": OverlayImageByMasks,
+    "MergeMasksToOne": MergeMasksToOne,
     "LoraMetadataParser": LoraMetadataParser,
     "SnJakeAnySwitch": SnJakeAnySwitch,
     "SnJakeImageSwitch": SnJakeImageSwitch,
@@ -155,6 +156,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ResizeAllMasks": "😎 Masks Resize",
     "BlurImageByMasks": "😎 Image Blur By Mask",
     "OverlayImageByMasks": "😎 Image Overlay By Mask",
+    "MergeMasksToOne": "😎 Merge Masks To One",
     "LoraMetadataParser": "😎 LoRA Metadata Parser",
     "SnJakeAnySwitch": "😎 Switch (Any)",
     "SnJakeImageSwitch": "😎 Switch (Image)",
@@ -179,3 +181,6 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
+
+
+
