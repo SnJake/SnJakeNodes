@@ -6,6 +6,47 @@ import numpy as np
 # Добавляем импорт для поиска связанных областей на маске
 from scipy.ndimage import label
 
+class MergeMasksToOne:
+    """
+    Merge a mask batch [N,H,W] into a single mask [1,H,W].
+    Useful for detectors/segmenters that return one mask per object.
+    """
+    CATEGORY = "😎 SnJake/Masks"
+    FUNCTION = "merge"
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("mask",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "masks": ("MASK",),
+                "mode": (["or", "add"], {"default": "or"}),
+                "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+
+    def merge(self, masks, mode="or", threshold=0.5):
+        if masks.dim() == 2:
+            merged = masks
+        elif masks.dim() == 3:
+            if mode == "add":
+                merged = torch.clamp(masks.sum(dim=0), 0.0, 1.0)
+            else:
+                merged = masks.max(dim=0).values
+                merged = (merged >= threshold).float()
+        elif masks.dim() == 4 and masks.shape[1] == 1:
+            masks_3d = masks.squeeze(1)
+            if mode == "add":
+                merged = torch.clamp(masks_3d.sum(dim=0), 0.0, 1.0)
+            else:
+                merged = masks_3d.max(dim=0).values
+                merged = (merged >= threshold).float()
+        else:
+            raise ValueError(f"Unsupported mask shape: {tuple(masks.shape)}")
+
+        return (merged.unsqueeze(0),)
+
 class ResizeAllMasks:
     """
     Нода для изменения размера только активной области маски (белой зоны), 
