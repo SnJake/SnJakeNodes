@@ -853,9 +853,9 @@ class StringReplace:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "source_string": ("STRING", {"default": "Hello"}),
-                "old_string":    ("STRING", {"default": "ell"}),
-                "new_string":    ("STRING", {"default": "bob"}),
+                "source_string": ("STRING", {"default": "Hello", "multiline": True}),
+                "old_string":    ("STRING", {"default": "ell", "multiline": True}),
+                "new_string":    ("STRING", {"default": "bob", "multiline": True}),
             }
         }
 
@@ -924,3 +924,4 @@ class RandomFloatNode:
         # Округляем до 2 знаков после запятой, чтобы, например, 0.53228 превратилось в 0.53
         result = round(value, 2)
         return (result,)
+
