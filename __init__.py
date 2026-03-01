@@ -46,6 +46,7 @@ from .image_resize_nodes import SnJakeResizeIfLarger
 from .qwenrescal import QwenImageResolutionCalc
 from .hunyuanrescal import HunyuanImageResolutionCalc
 from .image_crop_nodes import SnJakeInteractiveCropLoader, SnJakeImagePatchNode
+from .random_prompt_window_selector import SnJakeRandomPromptWindowSelector
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -108,6 +109,7 @@ NODE_CLASS_MAPPINGS = {
     "HunyuanImageResolutionCalc": HunyuanImageResolutionCalc,
     "SnJakeInteractiveCropLoader": SnJakeInteractiveCropLoader,
     "SnJakeImagePatchNode": SnJakeImagePatchNode,
+    "SnJakeRandomPromptWindowSelector": SnJakeRandomPromptWindowSelector,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -172,6 +174,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "HunyuanImageResolutionCalc": "😎 Hunyuan Image Resolution Calc",
     "SnJakeInteractiveCropLoader": "😎 Load & Crop Image",
     "SnJakeImagePatchNode": "😎 Patch Image Fragment",
+    "SnJakeRandomPromptWindowSelector": "😎 Random Prompt Window Selector",
 }
 
 
@@ -181,6 +184,3 @@ __all__ = ["NODE_CLASS_MAPPINGS", "WEB_DIRECTORY"]
 
 
 print("### SnJake Nodes Initialized ###")
-
-
-
