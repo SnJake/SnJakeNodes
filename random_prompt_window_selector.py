@@ -1,4 +1,4 @@
-﻿class SnJakeRandomPromptWindowSelector:
+class SnJakeRandomPromptWindowSelector:
     FUNCTION = "choose_random_prompt"
     CATEGORY = "😎 SnJake/Utils"
     RETURN_TYPES = ("STRING",)
@@ -26,6 +26,11 @@
             })
 
         return {"required": required}
+
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        # Disable ComfyUI cache for this node so a new random prompt is chosen every run.
+        return float("NaN")
 
     def choose_random_prompt(
         self,
