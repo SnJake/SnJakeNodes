@@ -445,6 +445,7 @@ class BatchLoadTextFiles:
         filename_text_extension="true",
         allow_cycle="true",
     ):
+        # 1) Collect matching files for the current execution.
         all_files = self._scan_directory(path, pattern)
 
         if filename_filter_enabled and filename_filter_text.strip():
@@ -464,16 +465,20 @@ class BatchLoadTextFiles:
                 print(f"[BatchLoadTextFiles] No .txt files found in '{path}' for pattern '{pattern}'")
             return ("", "")
 
+        # 2) Resolve which file should be used this run.
         if mode == "single_file":
             if index < 0 or index >= len(all_files):
                 print(f"[BatchLoadTextFiles] Invalid index={index}, available files: {len(all_files)}")
                 return ("", "")
             chosen_index = index
+
         elif mode == "incremental_file":
             if label not in self.incremental_counters:
                 self.incremental_counters[label] = 0
 
             last_seed = self.incremental_last_seed.get(label, None)
+            # Match BatchLoadImages behavior:
+            # if seed was changed manually, synchronize the next incremental index to it.
             if last_seed is None:
                 if seed > 0:
                     self.incremental_counters[label] = seed
@@ -481,6 +486,7 @@ class BatchLoadTextFiles:
                 self.incremental_counters[label] = seed
 
             chosen_index = self.incremental_counters[label]
+
             if chosen_index >= len(all_files):
                 if allow_cycle == "true":
                     print(f"[BatchLoadTextFiles] End of list for label='{label}' ({chosen_index}). Cycling to 0.")
@@ -492,10 +498,12 @@ class BatchLoadTextFiles:
 
             self.incremental_counters[label] += 1
             self.incremental_last_seed[label] = seed
-        else:
+
+        else:  # mode == "random"
             random.seed(seed)
             chosen_index = random.randint(0, len(all_files) - 1)
 
+        # 3) Read and return the selected file.
         txt_path = all_files[chosen_index]
         text_value = self._read_text(txt_path)
         filename = os.path.basename(txt_path)
@@ -506,6 +514,8 @@ class BatchLoadTextFiles:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        # Match BatchLoadImages behavior:
+        # non-single modes always execute again so incremental/random can advance.
         if kwargs["mode"] != "single_file":
             return float("NaN")
 
@@ -924,4 +934,3 @@ class RandomFloatNode:
         # Округляем до 2 знаков после запятой, чтобы, например, 0.53228 превратилось в 0.53
         result = round(value, 2)
         return (result,)
-
