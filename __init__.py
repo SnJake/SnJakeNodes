@@ -1,4 +1,4 @@
-from .api import VLMApiNode
+﻿from .api import VLMApiNode
 from .list_image import ScanImageFolder
 from .list_image_not import ScanImageFolder2
 from .crt_effect_node import CRTEffectNode
@@ -47,6 +47,7 @@ from .qwenrescal import QwenImageResolutionCalc
 from .hunyuanrescal import HunyuanImageResolutionCalc
 from .image_crop_nodes import SnJakeInteractiveCropLoader, SnJakeImagePatchNode
 from .random_prompt_window_selector import SnJakeRandomPromptWindowSelector
+from .execution_counter_node import SnJakeExecutionCounter
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -110,6 +111,7 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeInteractiveCropLoader": SnJakeInteractiveCropLoader,
     "SnJakeImagePatchNode": SnJakeImagePatchNode,
     "SnJakeRandomPromptWindowSelector": SnJakeRandomPromptWindowSelector,
+    "SnJakeExecutionCounter": SnJakeExecutionCounter,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -175,6 +177,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SnJakeInteractiveCropLoader": "😎 Load & Crop Image",
     "SnJakeImagePatchNode": "😎 Patch Image Fragment",
     "SnJakeRandomPromptWindowSelector": "😎 Random Prompt Window Selector",
+    "SnJakeExecutionCounter": "😎 Execution Counter",
 }
 
 
