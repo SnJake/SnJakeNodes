@@ -1,6 +1,7 @@
 import os
 import glob
 import random
+from io import BytesIO
 from PIL import Image, ImageOps
 from PIL.PngImagePlugin import PngInfo
 import numpy as np
@@ -11,6 +12,282 @@ from pathlib import Path
 
 from comfy_execution.graph import ExecutionBlocker
 from comfy_execution.graph_utils import GraphBuilder
+
+try:
+    import av
+except ImportError:
+    av = None
+
+
+AUDIO_FILE_EXTENSIONS = {
+    ".aac",
+    ".aiff",
+    ".aif",
+    ".aifc",
+    ".flac",
+    ".m4a",
+    ".mp3",
+    ".ogg",
+    ".opus",
+    ".wav",
+    ".wma",
+}
+
+AUDIO_OUTPUT_FORMATS = {
+    ".flac": ("flac", "flac"),
+    ".mp3": ("mp3", "libmp3lame"),
+    ".ogg": ("ogg", "libopus"),
+    ".opus": ("opus", "libopus"),
+    ".wav": ("wav", "pcm_s16le"),
+}
+
+OPUS_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000}
+
+
+def _make_json_safe(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except Exception:
+            return value.hex()
+    if isinstance(value, dict):
+        return {str(k): _make_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_make_json_safe(v) for v in value]
+    return str(value)
+
+
+def _metadata_to_json_string(metadata):
+    if not isinstance(metadata, dict) or not metadata:
+        return ""
+
+    safe_metadata = {str(k): _make_json_safe(v) for k, v in metadata.items()}
+    try:
+        return json.dumps(safe_metadata, ensure_ascii=False)
+    except Exception:
+        return str(safe_metadata)
+
+
+def _try_parse_json_object(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return None
+    return None
+
+
+def _extract_prompt_from_comfy_prompt(prompt_obj):
+    if not isinstance(prompt_obj, dict):
+        return ""
+
+    preferred = []
+    fallback = []
+    for node_data in prompt_obj.values():
+        if not isinstance(node_data, dict):
+            continue
+
+        class_type = str(node_data.get("class_type", ""))
+        inputs = node_data.get("inputs", {})
+        if not isinstance(inputs, dict):
+            continue
+
+        text_val = inputs.get("text", None)
+        if isinstance(text_val, str) and text_val.strip():
+            if "CLIPTextEncode" in class_type:
+                preferred.append(text_val.strip())
+            else:
+                fallback.append(text_val.strip())
+
+    if preferred:
+        return preferred[0]
+    if fallback:
+        return fallback[0]
+    return ""
+
+
+def _extract_prompt_from_workflow(workflow_obj):
+    nodes = workflow_obj.get("nodes", None)
+    if not isinstance(nodes, list):
+        return ""
+
+    preferred = []
+    fallback = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+
+        node_type = str(node.get("type", ""))
+        widgets_values = node.get("widgets_values", None)
+        if not isinstance(widgets_values, list):
+            continue
+
+        string_values = [v.strip() for v in widgets_values if isinstance(v, str) and v.strip()]
+        if not string_values:
+            continue
+
+        if "CLIPTextEncode" in node_type:
+            preferred.extend(string_values)
+        else:
+            fallback.extend(string_values)
+
+    if preferred:
+        return preferred[0]
+    if fallback:
+        return fallback[0]
+    return ""
+
+
+def _extract_prompt_text_from_metadata(metadata):
+    if not isinstance(metadata, dict):
+        return ""
+
+    prompt_obj = _try_parse_json_object(metadata.get("prompt", None))
+    if isinstance(prompt_obj, dict):
+        extracted = _extract_prompt_from_comfy_prompt(prompt_obj)
+        if extracted:
+            return extracted
+
+    workflow_obj = _try_parse_json_object(metadata.get("workflow", None))
+    if isinstance(workflow_obj, dict):
+        extracted = _extract_prompt_from_workflow(workflow_obj)
+        if extracted:
+            return extracted
+
+    for key in ("prompt", "parameters", "Description", "description", "Comment", "comment"):
+        raw_value = metadata.get(key, None)
+        if raw_value is None:
+            continue
+
+        text_value = str(raw_value).strip()
+        if not text_value:
+            continue
+
+        if key == "parameters":
+            return text_value.split("Negative prompt:", 1)[0].strip()
+        return text_value
+
+    return ""
+
+
+def _audio_to_f32_pcm(waveform):
+    if waveform.dtype.is_floating_point:
+        return waveform.float()
+    if waveform.dtype == torch.int16:
+        return waveform.float() / (2 ** 15)
+    if waveform.dtype == torch.int32:
+        return waveform.float() / (2 ** 31)
+    if waveform.dtype == torch.uint8:
+        return (waveform.float() - 128.0) / 128.0
+    return waveform.float()
+
+
+def _load_audio_file(file_path):
+    if av is None:
+        raise RuntimeError("PyAV is not available. Install ComfyUI audio dependencies first.")
+
+    with av.open(file_path) as container:
+        if not container.streams.audio:
+            raise ValueError("No audio stream found in the file.")
+
+        stream = container.streams.audio[0]
+        sample_rate = getattr(stream.codec_context, "sample_rate", None) or getattr(stream, "sample_rate", None)
+        n_channels = getattr(stream, "channels", None) or 1
+        metadata = dict(container.metadata or {})
+
+        frames = []
+        for frame in container.decode(streams=stream.index):
+            buf = torch.from_numpy(frame.to_ndarray())
+
+            if buf.ndim == 1:
+                buf = buf.unsqueeze(0)
+            elif buf.shape[0] != n_channels:
+                buf = buf.view(-1, n_channels).t()
+
+            frames.append(buf)
+
+        if not frames:
+            raise ValueError("No audio frames decoded.")
+
+        waveform = torch.cat(frames, dim=1)
+        waveform = _audio_to_f32_pcm(waveform)
+        return {"waveform": waveform.unsqueeze(0), "sample_rate": int(sample_rate)}, metadata
+
+
+def _save_audio_file(audio, output_path, metadata=None):
+    if av is None:
+        raise RuntimeError("PyAV is not available. Install ComfyUI audio dependencies first.")
+    if not isinstance(audio, dict):
+        raise ValueError("Audio input must be a ComfyUI AUDIO dict.")
+
+    waveform_batch = audio.get("waveform", None)
+    sample_rate = int(audio.get("sample_rate", 0) or 0)
+    if waveform_batch is None:
+        raise ValueError("Audio dict does not contain 'waveform'.")
+    if sample_rate <= 0:
+        raise ValueError("Audio dict does not contain a valid 'sample_rate'.")
+    if waveform_batch.ndim != 3 or waveform_batch.shape[0] < 1:
+        raise ValueError("Audio waveform must have shape [B, C, T].")
+
+    waveform = waveform_batch[0].detach().cpu().contiguous()
+    if waveform.ndim != 2:
+        raise ValueError("Single audio item must have shape [C, T].")
+    if waveform.shape[0] not in (1, 2):
+        raise ValueError("Only mono and stereo audio are supported for saving.")
+
+    suffix = output_path.suffix.lower()
+    if suffix not in AUDIO_OUTPUT_FORMATS:
+        supported = ", ".join(sorted(AUDIO_OUTPUT_FORMATS.keys()))
+        raise ValueError(f"Unsupported audio extension '{suffix}'. Supported: {supported}")
+
+    container_format, codec = AUDIO_OUTPUT_FORMATS[suffix]
+    if codec == "libopus" and sample_rate not in OPUS_SAMPLE_RATES:
+        supported_rates = ", ".join(str(x) for x in sorted(OPUS_SAMPLE_RATES))
+        raise ValueError(
+            f"Opus/Ogg export requires sample_rate in [{supported_rates}]. Current: {sample_rate}"
+        )
+
+    layout = "mono" if waveform.shape[0] == 1 else "stereo"
+
+    output_buffer = BytesIO()
+    output_container = av.open(output_buffer, mode="w", format=container_format)
+    try:
+        if isinstance(metadata, dict):
+            for key, value in metadata.items():
+                output_container.metadata[str(key)] = str(value)
+
+        out_stream = output_container.add_stream(codec, rate=sample_rate, layout=layout)
+        if codec == "libmp3lame":
+            out_stream.bit_rate = 320000
+        elif codec == "libopus":
+            out_stream.bit_rate = 192000
+
+        frame = av.AudioFrame.from_ndarray(
+            waveform.movedim(0, 1).reshape(1, -1).float().numpy(),
+            format="flt",
+            layout=layout,
+        )
+        frame.sample_rate = sample_rate
+        frame.pts = 0
+
+        for packet in out_stream.encode(frame):
+            output_container.mux(packet)
+        for packet in out_stream.encode(None):
+            output_container.mux(packet)
+    finally:
+        output_container.close()
+
+    output_buffer.seek(0)
+    with open(output_path, "wb") as f:
+        f.write(output_buffer.getbuffer())
 
 class BatchLoadImages:
     """
@@ -549,6 +826,122 @@ class BatchLoadTextFiles:
         return ""
 
 
+class BatchLoadAudio:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mode": (["single_audio", "incremental_audio", "random"], {}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 150000}),
+                "label": ("STRING", {"default": "Batch Audio 001"}),
+                "path": ("STRING", {"default": ""}),
+                "pattern": ("STRING", {"default": "*"}),
+                "allow_cycle": (["true", "false"], {"default": "true", "label_on": "Cycle On", "label_off": "Cycle Off"}),
+            },
+            "optional": {
+                "filename_text_extension": (["true", "false"], {"default": "true"}),
+            },
+        }
+
+    RETURN_TYPES = ("AUDIO", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("audio", "filename_text", "raw_metadata", "prompt_text")
+    FUNCTION = "load_batch_audio"
+    CATEGORY = "\U0001F60E SnJake/Utils"
+
+    incremental_counters = {}
+    incremental_last_seed = {}
+
+    def load_batch_audio(
+        self,
+        path,
+        pattern="*",
+        index=0,
+        mode="single_audio",
+        seed=0,
+        label="Batch Audio 001",
+        filename_text_extension="true",
+        allow_cycle="true",
+    ):
+        if av is None:
+            print("[BatchLoadAudio] PyAV is not available. Audio nodes are disabled.")
+            return (None, None, "", "")
+
+        all_files = self._scan_directory(path, pattern)
+        if not all_files:
+            print(f"[BatchLoadAudio] No audio files found in '{path}' for pattern '{pattern}'")
+            return (None, None, "", "")
+
+        if mode == "single_audio":
+            if index < 0 or index >= len(all_files):
+                print(f"[BatchLoadAudio] Invalid index={index}, available files: {len(all_files)}")
+                return (None, None, "", "")
+            chosen_index = index
+
+        elif mode == "incremental_audio":
+            if label not in self.incremental_counters:
+                self.incremental_counters[label] = 0
+
+            last_seed = self.incremental_last_seed.get(label, None)
+            if last_seed is None:
+                if seed > 0:
+                    self.incremental_counters[label] = seed
+            elif seed < last_seed or seed > (last_seed + 1):
+                self.incremental_counters[label] = seed
+
+            chosen_index = self.incremental_counters[label]
+
+            if chosen_index >= len(all_files):
+                if allow_cycle == "true":
+                    print(f"[BatchLoadAudio] End of list for label='{label}' ({chosen_index}). Cycling to 0.")
+                    chosen_index = 0
+                    self.incremental_counters[label] = 0
+                else:
+                    print(f"[BatchLoadAudio] End of list for label='{label}'. Blocking output.")
+                    return (None, None, "", "")
+
+            self.incremental_counters[label] += 1
+            self.incremental_last_seed[label] = seed
+
+        else:
+            random.seed(seed)
+            chosen_index = random.randint(0, len(all_files) - 1)
+
+        audio_path = all_files[chosen_index]
+        try:
+            audio_value, metadata = _load_audio_file(audio_path)
+        except Exception as e:
+            print(f"[BatchLoadAudio] Failed to load '{audio_path}': {e}")
+            return (None, None, "", "")
+
+        filename = os.path.basename(audio_path)
+        if filename_text_extension == "false":
+            filename = os.path.splitext(filename)[0]
+
+        raw_metadata_text = _metadata_to_json_string(metadata)
+        prompt_text = _extract_prompt_text_from_metadata(metadata)
+        return (audio_value, filename, raw_metadata_text, prompt_text)
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        if kwargs["mode"] != "single_audio":
+            return float("NaN")
+
+        path = kwargs["path"]
+        index = kwargs["index"]
+        pattern = kwargs["pattern"]
+        mode = kwargs["mode"]
+        return (path, pattern, mode, index)
+
+    def _scan_directory(self, directory_path, pattern):
+        files = []
+        for file_name in glob.glob(os.path.join(directory_path, pattern), recursive=True):
+            if os.path.splitext(file_name)[1].lower() in AUDIO_FILE_EXTENSIONS:
+                files.append(os.path.abspath(file_name))
+        files.sort()
+        return files
+
+
 class SaveTextToPath:
     @classmethod
     def INPUT_TYPES(cls):
@@ -743,6 +1136,78 @@ class SaveImageToPath:
 
         return ()
 
+
+class SaveAudioToPath:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "audio": ("AUDIO", {}),
+                "save_path": ("STRING", {"default": "D:\\Stable diffusion\\result_7.flac"}),
+                "save_workflow": ("BOOLEAN", {"default": True, "tooltip": "Save workflow metadata inside the audio container when supported."}),
+            },
+            "hidden": {
+                "prompt": "PROMPT",
+                "extra_pnginfo": "EXTRA_PNGINFO",
+            },
+        }
+
+    RETURN_TYPES = ()
+    RETURN_NAMES = ()
+    FUNCTION = "save_audio"
+    CATEGORY = "\U0001F60E SnJake/Utils"
+    OUTPUT_NODE = True
+
+    def save_audio(self, audio, save_path, save_workflow, prompt=None, extra_pnginfo=None):
+        if av is None:
+            print("[SaveAudioToPath] PyAV is not available. Audio nodes are disabled.")
+            return ()
+
+        if audio is None:
+            print("[SaveAudioToPath] No input audio provided.")
+            return ()
+
+        try:
+            path_obj = Path(save_path.strip().strip('"').strip("'"))
+            full_path = path_obj.resolve()
+            print(f"[SaveAudioToPath] Full path: {full_path}")
+        except Exception as e:
+            print(f"[SaveAudioToPath] Path error: {e}")
+            return ()
+
+        try:
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(f"[SaveAudioToPath] Failed to create directory {full_path.parent}: {e}")
+            return ()
+
+        waveform = audio.get("waveform", None) if isinstance(audio, dict) else None
+        if waveform is not None and waveform.ndim == 3 and waveform.shape[0] > 1:
+            print("[SaveAudioToPath] Batch audio detected. Only the first audio item will be saved.")
+
+        metadata_to_save = None
+        if save_workflow:
+            metadata_to_save = {}
+            if prompt is not None:
+                metadata_to_save["prompt"] = json.dumps(prompt, ensure_ascii=False)
+            if extra_pnginfo is not None and isinstance(extra_pnginfo, dict):
+                for k, v in extra_pnginfo.items():
+                    metadata_to_save[str(k)] = json.dumps(v, ensure_ascii=False)
+
+        try:
+            _save_audio_file(audio, full_path, metadata_to_save)
+            print(f"[SaveAudioToPath] Audio saved: {full_path}")
+            if save_workflow:
+                if prompt or extra_pnginfo:
+                    print("[SaveAudioToPath] Workflow metadata has been included in the audio file.")
+                else:
+                    print("[SaveAudioToPath] Workflow saving was enabled, but no workflow metadata was available.")
+            else:
+                print("[SaveAudioToPath] Workflow metadata was not saved (option disabled).")
+        except Exception as e:
+            print(f"[SaveAudioToPath] Save error: {e}")
+
+        return ()
 
 
 class ImageRouter:
