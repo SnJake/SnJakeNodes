@@ -1,4 +1,4 @@
-﻿from .api import VLMApiNode
+from .api import VLMApiNode
 from .list_image import ScanImageFolder
 from .list_image_not import ScanImageFolder2
 from .crt_effect_node import CRTEffectNode
@@ -8,9 +8,11 @@ from .color_adjusment import ImageAdjustmentNode
 from .color_balance import ColorBalance
 from .utils_nodes import (
     BatchLoadImages,
+    BatchLoadAudio,
     BatchLoadTextFiles,
     LoadSingleImageFromPath,
     SaveImageToPath,
+    SaveAudioToPath,
     SaveTextToPath,
     ImageRouter,
     StringToNumber,
@@ -68,9 +70,11 @@ NODE_CLASS_MAPPINGS = {
     "RandomFloatNode": RandomFloatNode,
     "RandomIntNode": RandomIntNode,
     "BatchLoadImages": BatchLoadImages,
+    "BatchLoadAudio": BatchLoadAudio,
     "BatchLoadTextFiles": BatchLoadTextFiles,
     "LoadSingleImageFromPath": LoadSingleImageFromPath,
     "SaveImageToPath": SaveImageToPath,
+    "SaveAudioToPath": SaveAudioToPath,
     "SaveTextToPath": SaveTextToPath,
     "ImageRouter": ImageRouter,
     "StringToNumber": StringToNumber,
@@ -131,9 +135,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RandomFloatNode": "😎 Random Float Node",
     "RandomIntNode": "😎  Random Int Node",
     "BatchLoadImages": "😎 Batch Load Images",
+    "BatchLoadAudio": "😎 Batch Load Audio",
     "BatchLoadTextFiles": "😎 Batch Load TXT",
     "LoadSingleImageFromPath": "😎 Load Image By Full Path",
     "SaveImageToPath": "😎 Save Image To Path",
+    "SaveAudioToPath": "😎 Save Audio To Path",
     "SaveTextToPath": "😎 Save TXT To Path",
     "ImageRouter": "😎 Route Image By Int",
     "StringToNumber": "😎 String->Int/Float",
