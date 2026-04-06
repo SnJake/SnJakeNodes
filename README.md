@@ -70,8 +70,10 @@ All nodes can be found in the "Add Node" menu under the **`😎 SnJake/...`** ca
 
 ### 🔧 Utilities & Workflow
 - **Batch Load Images** (`utils_nodes.py`): Loads images from a directory with various modes (incremental, random, single).
+- **Batch Load Audio** (`utils_nodes.py`): Loads audio from a directory with various modes (incremental, random, single) and exposes container metadata.
 - **Load Image By Full Path** (`utils_nodes.py`): Loads a single image from an absolute file path.
 - **Save Image To Path** (`utils_nodes.py`): Saves an image to a specified absolute path, with an option to embed the workflow.
+- **Save Audio To Path** (`utils_nodes.py`): Saves audio to an absolute path (`.flac`, `.mp3`, `.ogg`, `.opus`, `.wav`) with optional workflow metadata.
 - **List Image Files In Folder** (`list_image.py`): Scans a folder and outputs a list of full image paths.
 - **Simple List Image Files** (`list_image_not.py`): Scans a folder and outputs filenames and full paths as separate multiline strings.
 - **Concatenate Images By Directory** (`image_concatenate.py`): Groups images by directory and concatenates them based on a specified base image.
