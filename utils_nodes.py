@@ -1,6 +1,7 @@
 import os
 import glob
 import random
+import re
 from io import BytesIO
 from PIL import Image, ImageOps
 from PIL.PngImagePlugin import PngInfo
@@ -42,6 +43,11 @@ AUDIO_OUTPUT_FORMATS = {
 }
 
 OPUS_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000}
+
+
+def _natural_sort_key(file_path):
+    filename = os.path.basename(file_path).casefold()
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", filename)]
 
 
 def _make_json_safe(value):
@@ -440,7 +446,7 @@ class BatchLoadImages:
         for file_name in glob.glob(os.path.join(directory_path, pattern), recursive=True):
             if os.path.splitext(file_name)[1].lower() in exts:
                 files.append(os.path.abspath(file_name))
-        files.sort()
+        files.sort(key=_natural_sort_key)
         return files
 
     def _load_as_tensor(self, file_path, allow_rgba=False):
@@ -698,6 +704,7 @@ class BatchLoadTextFiles:
             },
             "optional": {
                 "filename_text_extension": (["true", "false"], {"default": "true"}),
+                "match_filename_text": ("STRING", {"default": "", "forceInput": True, "tooltip": "Optional image filename from Batch Load Images. Limits TXT candidates to the same base name, e.g. result_1 -> result_1_face.txt."}),
             },
         }
 
@@ -721,19 +728,26 @@ class BatchLoadTextFiles:
         filename_filter_text="",
         filename_text_extension="true",
         allow_cycle="true",
+        match_filename_text="",
     ):
         # 1) Collect matching files for the current execution.
         all_files = self._scan_directory(path, pattern)
 
-        if filename_filter_enabled and filename_filter_text.strip():
-            filter_text = filename_filter_text.strip().lower()
+        if match_filename_text.strip():
             all_files = [
                 f for f in all_files
-                if filter_text in os.path.basename(f).lower()
+                if self._filename_matches_base(f, match_filename_text)
+            ]
+
+        if self._filename_filter_is_enabled(filename_filter_enabled) and filename_filter_text.strip():
+            filter_text = filename_filter_text.strip().casefold()
+            all_files = [
+                f for f in all_files
+                if self._filename_matches_filter(f, filter_text)
             ]
 
         if not all_files:
-            if filename_filter_enabled and filename_filter_text.strip():
+            if self._filename_filter_is_enabled(filename_filter_enabled) and filename_filter_text.strip():
                 print(
                     f"[BatchLoadTextFiles] No .txt files found in '{path}' for pattern '{pattern}' "
                     f"with filename filter '{filename_filter_text}'."
@@ -802,15 +816,34 @@ class BatchLoadTextFiles:
         mode = kwargs["mode"]
         filename_filter_enabled = kwargs.get("filename_filter_enabled", False)
         filename_filter_text = kwargs.get("filename_filter_text", "")
-        return (path, pattern, mode, index, filename_filter_enabled, filename_filter_text)
+        match_filename_text = kwargs.get("match_filename_text", "")
+        return (path, pattern, mode, index, filename_filter_enabled, filename_filter_text, match_filename_text)
 
     def _scan_directory(self, directory_path, pattern):
         files = []
         for file_name in glob.glob(os.path.join(directory_path, pattern), recursive=True):
             if os.path.splitext(file_name)[1].lower() == ".txt":
                 files.append(os.path.abspath(file_name))
-        files.sort()
+        files.sort(key=_natural_sort_key)
         return files
+
+    def _filename_filter_is_enabled(self, value):
+        if isinstance(value, str):
+            return value.strip().casefold() == "true"
+        return bool(value)
+
+    def _filename_matches_filter(self, file_path, filter_text):
+        filename_without_extension = os.path.splitext(os.path.basename(file_path))[0]
+        return filter_text in filename_without_extension.casefold()
+
+    def _filename_matches_base(self, file_path, match_filename_text):
+        wanted_base = os.path.splitext(os.path.basename(match_filename_text.strip()))[0].casefold()
+        candidate_base = os.path.splitext(os.path.basename(file_path))[0].casefold()
+        if not wanted_base:
+            return True
+        if candidate_base == wanted_base:
+            return True
+        return any(candidate_base.startswith(wanted_base + separator) for separator in ("_", "-", ".", " "))
 
     def _read_text(self, file_path):
         encodings = ["utf-8", "utf-8-sig", "cp1251", "latin-1"]
@@ -938,7 +971,7 @@ class BatchLoadAudio:
         for file_name in glob.glob(os.path.join(directory_path, pattern), recursive=True):
             if os.path.splitext(file_name)[1].lower() in AUDIO_FILE_EXTENSIONS:
                 files.append(os.path.abspath(file_name))
-        files.sort()
+        files.sort(key=_natural_sort_key)
         return files
 
 
