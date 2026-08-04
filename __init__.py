@@ -50,6 +50,7 @@ from .hunyuanrescal import HunyuanImageResolutionCalc
 from .image_crop_nodes import SnJakeInteractiveCropLoader, SnJakeImagePatchNode
 from .random_prompt_window_selector import SnJakeRandomPromptWindowSelector
 from .execution_counter_node import SnJakeExecutionCounter
+from .grok_api_node import SnJakeGrokApi
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -117,9 +118,11 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeImagePatchNode": SnJakeImagePatchNode,
     "SnJakeRandomPromptWindowSelector": SnJakeRandomPromptWindowSelector,
     "SnJakeExecutionCounter": SnJakeExecutionCounter,
+    "SnJakeGrokApi": SnJakeGrokApi,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "SnJakeGrokApi": "😎 Grok API",
     "SnJakeRemoveTextRange": "😎 Remove Text Range",
     "HunyuanImageResolutionCalc": "HunyuanImage-2.1 Resolution Calc",
     "VLMApiNode": "😎 VLM Api Node",
