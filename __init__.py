@@ -43,7 +43,7 @@ from .mask_utils import ResizeAllMasks, BlurImageByMasks, OverlayImageByMasks, M
 from .lora_metadata_parser import LoraMetadataParser
 from .switch_nodes import SnJakeAnySwitch, SnJakeImageSwitch, SnJakeMaskSwitch, SnJakeStringSwitch, SnJakeLatentSwitch, SnJakeConditioningSwitch
 from .random_node import SnJakeNumberNode
-from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText
+from .text_utils_nodes import SnJakeTextConcatenate, SnJakeMultilineText, SnJakeRemoveTextRange
 from .image_resize_nodes import SnJakeResizeIfLarger
 from .qwenrescal import QwenImageResolutionCalc
 from .hunyuanrescal import HunyuanImageResolutionCalc
@@ -109,6 +109,7 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeNumberNode": SnJakeNumberNode,
     "SnJakeTextConcatenate": SnJakeTextConcatenate,
     "SnJakeMultilineText": SnJakeMultilineText,
+    "SnJakeRemoveTextRange": SnJakeRemoveTextRange,
     "SnJakeResizeIfLarger": SnJakeResizeIfLarger,
     "QwenImageResolutionCalc": QwenImageResolutionCalc,
     "HunyuanImageResolutionCalc": HunyuanImageResolutionCalc,
@@ -119,6 +120,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "SnJakeRemoveTextRange": "😎 Remove Text Range",
     "HunyuanImageResolutionCalc": "HunyuanImage-2.1 Resolution Calc",
     "VLMApiNode": "😎 VLM Api Node",
     "ScanImageFolder": "😎 List Image Files In Folder",

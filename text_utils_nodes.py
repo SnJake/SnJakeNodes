@@ -2,6 +2,37 @@
 # text_utils_nodes.py
 #
 
+class SnJakeRemoveTextRange:
+    FUNCTION = "remove_text_range"
+    CATEGORY = "😎 SnJake/Utils"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text": ("STRING", {"forceInput": True}),
+                "start_word": ("STRING", {"default": ""}),
+                "end_word": ("STRING", {"default": ""}),
+            }
+        }
+
+    def remove_text_range(self, text, start_word, end_word):
+        if not start_word or not end_word:
+            return (text,)
+
+        start = text.find(start_word)
+        if start == -1:
+            return (text,)
+
+        end = text.find(end_word, start + len(start_word))
+        if end == -1:
+            return (text,)
+
+        return (text[:start] + text[end + len(end_word):],)
+
+
 class SnJakeTextConcatenate:
     """
     Нода для соединения (конкатенации) до четырех строк текста с использованием
