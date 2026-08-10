@@ -4,10 +4,11 @@ import random
 import re
 from fractions import Fraction
 
+import av
+import numpy as np
 import torch
 import torch.nn.functional as F
 
-import comfy.utils
 import folder_paths
 from comfy_api.latest import InputImpl, Types
 
@@ -69,25 +70,104 @@ def _target_size(width, height, custom_width, custom_height):
     return custom_width, custom_height
 
 
-def _resample_frames(images, source_fps, target_fps):
-    if target_fps <= 0 or abs(target_fps - source_fps) < 1e-6:
-        return images
+def _audio_to_float32(audio_data):
+    if np.issubdtype(audio_data.dtype, np.floating):
+        return audio_data.astype(np.float32, copy=False)
+    if np.issubdtype(audio_data.dtype, np.signedinteger):
+        return audio_data.astype(np.float32) / float(2 ** (audio_data.dtype.itemsize * 8 - 1))
+    if np.issubdtype(audio_data.dtype, np.unsignedinteger):
+        midpoint = float(2 ** (audio_data.dtype.itemsize * 8 - 1))
+        return (audio_data.astype(np.float32) - midpoint) / midpoint
+    return audio_data.astype(np.float32)
 
-    target_count = max(1, round(len(images) * target_fps / source_fps))
-    indices = [min(int(index * source_fps / target_fps), len(images) - 1) for index in range(target_count)]
-    return images[indices]
+
+def _load_audio_range(video_path, start_time, duration):
+    with av.open(video_path) as container:
+        if not container.streams.audio:
+            return None
+
+        stream = container.streams.audio[0]
+        sample_rate = stream.codec_context.sample_rate or stream.sample_rate
+        channel_count = stream.codec_context.channels or 1
+        end_time = start_time + duration
+        audio_frames = []
+        fallback_time = 0.0
+
+        for frame in container.decode(stream):
+            frame_rate = frame.sample_rate or sample_rate
+            frame_start = float(frame.time) if frame.time is not None else fallback_time
+            frame_end = frame_start + frame.samples / frame_rate
+            fallback_time = frame_end
+            if frame_end <= start_time:
+                continue
+            if frame_start >= end_time:
+                break
+
+            audio_data = frame.to_ndarray()
+            if audio_data.ndim == 1:
+                audio_data = audio_data[None, :]
+            elif audio_data.shape[0] != channel_count:
+                audio_data = audio_data.reshape(-1, channel_count).T
+
+            first_sample = max(0, round((start_time - frame_start) * frame_rate))
+            last_sample = min(frame.samples, round((end_time - frame_start) * frame_rate))
+            if last_sample > first_sample:
+                audio_frames.append(_audio_to_float32(audio_data[:, first_sample:last_sample]))
+
+        if not audio_frames:
+            return None
+
+        waveform = np.ascontiguousarray(np.concatenate(audio_frames, axis=1))
+        return {"waveform": torch.from_numpy(waveform).unsqueeze(0), "sample_rate": int(sample_rate)}
 
 
-def _trim_audio(audio, duration):
-    if audio is None:
-        return None
+def _decode_video_frames(video_path, source_fps, width, height, force_rate, frame_load_cap, skip_first_frames, select_every_nth):
+    target_fps = force_rate if force_rate > 0 else source_fps
 
-    sample_rate = int(audio["sample_rate"])
-    waveform = audio["waveform"]
-    sample_count = min(waveform.shape[-1], round(duration * sample_rate))
-    if sample_count == waveform.shape[-1]:
-        return audio
-    return {"waveform": waveform[..., :sample_count].clone(), "sample_rate": sample_rate}
+    def frame_generator():
+        target_index = 0
+        resampled_index = 0
+        frames_added = 0
+
+        with av.open(video_path) as container:
+            stream = container.streams.video[0]
+            for source_index, frame in enumerate(container.decode(stream)):
+                if source_index < skip_first_frames:
+                    continue
+
+                relative_index = source_index - skip_first_frames
+                repeat_count = 1
+                if force_rate > 0:
+                    repeat_count = 0
+                    while int(target_index * source_fps / target_fps) <= relative_index:
+                        if int(target_index * source_fps / target_fps) == relative_index:
+                            repeat_count += 1
+                        target_index += 1
+
+                frame_array = None
+                for _ in range(repeat_count):
+                    if resampled_index % select_every_nth == 0:
+                        if frame_array is None:
+                            if (frame.width, frame.height) != (width, height):
+                                frame = frame.reformat(
+                                    width=width,
+                                    height=height,
+                                    format="rgb24",
+                                    interpolation=av.video.reformatter.Interpolation.LANCZOS,
+                                )
+                            frame_array = frame.to_ndarray(format="rgb24")
+                        yield frame_array
+                        frames_added += 1
+                        if frame_load_cap > 0 and frames_added >= frame_load_cap:
+                            return
+                    resampled_index += 1
+
+    frame_dtype = np.dtype((np.float32, (height, width, 3)))
+    images = torch.from_numpy(np.fromiter(frame_generator(), dtype=frame_dtype))
+    if len(images) == 0:
+        raise ValueError("No video frames were decoded from the selected range.")
+    images.div_(255.0)
+    return images, target_fps / select_every_nth
 
 
 def _load_video_file(video_path, force_rate, custom_width, custom_height, frame_load_cap, skip_first_frames, select_every_nth):
@@ -99,38 +179,20 @@ def _load_video_file(video_path, force_rate, custom_width, custom_height, frame_
     source_bit_depth = source_video.get_bit_depth()
     container_format = source_video.get_container_format()
 
-    start_time = skip_first_frames / source_fps
-    base_fps = force_rate if force_rate > 0 else source_fps
-    duration = frame_load_cap * select_every_nth / base_fps if frame_load_cap > 0 else 0
-    video = source_video.as_trimmed(start_time, duration, strict_duration=False)
-    if video is None:
-        raise ValueError("The selected video range is empty.")
-
-    components = video.get_components()
-    images = components.images
-    if len(images) == 0:
-        raise ValueError("No video frames were decoded from the selected range.")
-
-    decoded_fps = float(components.frame_rate)
-    images = _resample_frames(images, decoded_fps, force_rate)
-    loaded_fps = (force_rate if force_rate > 0 else decoded_fps) / select_every_nth
-
-    selected_images = images[::select_every_nth]
-    if frame_load_cap > 0:
-        selected_images = selected_images[:frame_load_cap]
-    if select_every_nth > 1 or frame_load_cap > 0:
-        selected_images = selected_images.clone()
-    images = selected_images
-
-    loaded_height, loaded_width = images.shape[1:3]
-    target_width, target_height = _target_size(loaded_width, loaded_height, custom_width, custom_height)
-    if (target_width, target_height) != (loaded_width, loaded_height):
-        images = comfy.utils.common_upscale(images.movedim(-1, 1), target_width, target_height, "lanczos", "disabled").movedim(1, -1)
-        loaded_width, loaded_height = target_width, target_height
-
+    loaded_width, loaded_height = _target_size(source_width, source_height, custom_width, custom_height)
+    images, loaded_fps = _decode_video_frames(
+        video_path,
+        source_fps,
+        loaded_width,
+        loaded_height,
+        force_rate,
+        frame_load_cap,
+        skip_first_frames,
+        select_every_nth,
+    )
     loaded_frame_count = len(images)
     loaded_duration = loaded_frame_count / loaded_fps
-    audio = _trim_audio(components.audio, loaded_duration)
+    audio = _load_audio_range(video_path, skip_first_frames / source_fps, loaded_duration)
     video_info = {
         "source_fps": source_fps,
         "source_frame_count": source_frame_count,
