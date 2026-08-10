@@ -51,6 +51,7 @@ from .image_crop_nodes import SnJakeInteractiveCropLoader, SnJakeImagePatchNode
 from .random_prompt_window_selector import SnJakeRandomPromptWindowSelector
 from .execution_counter_node import SnJakeExecutionCounter
 from .grok_api_node import SnJakeGrokApi
+from .video_nodes import SnJakeVideoFrameLoader, SnJakeVideoDetails, SnJakeBatchLoadVideos, SnJakeVideoComposer
 
 NODE_CLASS_MAPPINGS = {
     "VLMApiNode": VLMApiNode,
@@ -119,9 +120,17 @@ NODE_CLASS_MAPPINGS = {
     "SnJakeRandomPromptWindowSelector": SnJakeRandomPromptWindowSelector,
     "SnJakeExecutionCounter": SnJakeExecutionCounter,
     "SnJakeGrokApi": SnJakeGrokApi,
+    "SnJakeVideoFrameLoader": SnJakeVideoFrameLoader,
+    "SnJakeVideoDetails": SnJakeVideoDetails,
+    "SnJakeBatchLoadVideos": SnJakeBatchLoadVideos,
+    "SnJakeVideoComposer": SnJakeVideoComposer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "SnJakeVideoFrameLoader": "😎 Video Frame Loader",
+    "SnJakeVideoDetails": "😎 Video Details",
+    "SnJakeBatchLoadVideos": "😎 Batch Load Videos",
+    "SnJakeVideoComposer": "😎 Video Composer",
     "SnJakeGrokApi": "😎 Grok API",
     "SnJakeRemoveTextRange": "😎 Remove Text Range",
     "HunyuanImageResolutionCalc": "HunyuanImage-2.1 Resolution Calc",
