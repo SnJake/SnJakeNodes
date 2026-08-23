@@ -392,6 +392,11 @@ class SnJakeVideoComposer:
                 "trim_to_audio": ("BOOLEAN", {"default": False}),
                 "save_metadata": ("BOOLEAN", {"default": True}),
                 "save_output": ("BOOLEAN", {"default": True}),
+                "save_to_path": ("BOOLEAN", {"default": False}),
+                "custom_output_path": ("STRING", {
+                    "default": "",
+                    "tooltip": "Full path and filename without an extension, for example D:\\Videos\\result",
+                }),
             },
             "optional": {
                 "audio": ("AUDIO",),
@@ -423,6 +428,8 @@ class SnJakeVideoComposer:
         audio=None,
         prompt=None,
         extra_pnginfo=None,
+        save_to_path=False,
+        custom_output_path="",
     ):
         if len(images) == 0:
             raise ValueError("Cannot create a video from an empty image batch.")
@@ -458,14 +465,35 @@ class SnJakeVideoComposer:
         if not save_output:
             return (video, "")
 
-        full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(
-            filename_prefix,
-            folder_paths.get_output_directory(),
-            images.shape[2],
-            images.shape[1],
-        )
-        output_name = f"{filename}_{counter:05}.mp4"
-        output_path = os.path.join(full_output_folder, output_name)
+        preview = None
+        if save_to_path:
+            output_path = custom_output_path.strip()
+            if not output_path:
+                raise ValueError("Custom output path is empty.")
+            extension = os.path.splitext(output_path)[1]
+            if extension and extension.lower() != ".mp4":
+                raise ValueError("Custom output path must not contain an extension other than .mp4.")
+            if not extension:
+                output_path += ".mp4"
+            output_path = os.path.abspath(os.path.expanduser(output_path))
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        else:
+            full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(
+                filename_prefix,
+                folder_paths.get_output_directory(),
+                images.shape[2],
+                images.shape[1],
+            )
+            output_name = f"{filename}_{counter:05}.mp4"
+            output_path = os.path.join(full_output_folder, output_name)
+            preview = {
+                "filename": output_name,
+                "subfolder": subfolder,
+                "type": "output",
+                "format": "video/mp4",
+                "frame_rate": frame_rate,
+                "fullpath": output_path,
+            }
         metadata = None
         if save_metadata:
             metadata = dict(extra_pnginfo or {})
@@ -482,12 +510,6 @@ class SnJakeVideoComposer:
             bit_depth=output_bit_depth,
             crf=crf,
         )
-        preview = {
-            "filename": output_name,
-            "subfolder": subfolder,
-            "type": "output",
-            "format": "video/mp4",
-            "frame_rate": frame_rate,
-            "fullpath": output_path,
-        }
+        if preview is None:
+            return {"result": (video, output_path)}
         return {"ui": {"gifs": [preview]}, "result": (video, output_path)}
