@@ -1,4 +1,6 @@
 import glob
+import json
+import math
 import os
 import random
 import re
@@ -215,6 +217,48 @@ def _load_video_file(video_path, force_rate, custom_width, custom_height, frame_
     return images, loaded_frame_count, audio, video_info, processed_video
 
 
+def _save_mkv(images, audio, frame_rate, output_path, metadata, bit_depth, crf):
+    is_10bit = bit_depth >= 10
+    pix_fmt = "yuv420p10le" if is_10bit else "yuv420p"
+    rate = Fraction(round(frame_rate * 1000), 1000)
+
+    with av.open(output_path, mode="w", format="matroska") as output:
+        if metadata is not None:
+            for key, value in metadata.items():
+                output.metadata[key] = json.dumps(value)
+
+        video_stream = output.add_stream("h264", rate=rate)
+        video_stream.width = images.shape[2]
+        video_stream.height = images.shape[1]
+        video_stream.pix_fmt = pix_fmt
+        video_stream.options = {"crf": str(crf)}
+
+        audio_stream = None
+        if audio is not None:
+            sample_rate = int(audio["sample_rate"])
+            waveform = audio["waveform"][0, :, :math.ceil((sample_rate / rate) * len(images))]
+            layout = {1: "mono", 2: "stereo", 6: "5.1"}.get(waveform.shape[0], "stereo")
+            audio_stream = output.add_stream("aac", rate=sample_rate, layout=layout)
+
+        for image in images:
+            if is_10bit:
+                image_array = (image.float() * 65535).clamp(0, 65535).cpu().numpy().astype(np.uint16)
+                frame = av.VideoFrame.from_ndarray(image_array, format="rgb48le")
+            else:
+                image_array = (image * 255).clamp(0, 255).byte().cpu().numpy()
+                frame = av.VideoFrame.from_ndarray(image_array, format="rgb24")
+            output.mux(video_stream.encode(frame.reformat(format=pix_fmt)))
+
+        output.mux(video_stream.encode(None))
+
+        if audio_stream is not None:
+            frame = av.AudioFrame.from_ndarray(waveform.float().cpu().contiguous().numpy(), format="fltp", layout=layout)
+            frame.sample_rate = sample_rate
+            frame.pts = 0
+            output.mux(audio_stream.encode(frame))
+            output.mux(audio_stream.encode(None))
+
+
 def _loader_inputs(video_input):
     return {
         "required": {
@@ -385,6 +429,7 @@ class SnJakeVideoComposer:
                 "images": ("IMAGE",),
                 "frame_rate": ("FLOAT", {"default": 24.0, "min": 0.01, "max": 240.0, "step": 0.01}),
                 "filename_prefix": ("STRING", {"default": "video/SnJake"}),
+                "container_format": (["mp4", "mkv"], {"default": "mp4"}),
                 "crf": ("INT", {"default": 19, "min": 0, "max": 51}),
                 "bit_depth": (["8", "10"], {"default": "8"}),
                 "loop_count": ("INT", {"default": 0, "min": 0, "max": 100}),
@@ -430,6 +475,7 @@ class SnJakeVideoComposer:
         extra_pnginfo=None,
         save_to_path=False,
         custom_output_path="",
+        container_format="mp4",
     ):
         if len(images) == 0:
             raise ValueError("Cannot create a video from an empty image batch.")
@@ -465,16 +511,17 @@ class SnJakeVideoComposer:
         if not save_output:
             return (video, "")
 
+        output_extension = {"mp4": ".mp4", "mkv": ".mkv"}[container_format]
         preview = None
         if save_to_path:
             output_path = custom_output_path.strip()
             if not output_path:
                 raise ValueError("Custom output path is empty.")
             extension = os.path.splitext(output_path)[1]
-            if extension and extension.lower() != ".mp4":
-                raise ValueError("Custom output path must not contain an extension other than .mp4.")
+            if extension and extension.lower() != output_extension:
+                raise ValueError(f"Custom output path extension must be {output_extension}.")
             if not extension:
-                output_path += ".mp4"
+                output_path += output_extension
             output_path = os.path.abspath(os.path.expanduser(output_path))
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
         else:
@@ -484,13 +531,13 @@ class SnJakeVideoComposer:
                 images.shape[2],
                 images.shape[1],
             )
-            output_name = f"{filename}_{counter:05}.mp4"
+            output_name = f"{filename}_{counter:05}{output_extension}"
             output_path = os.path.join(full_output_folder, output_name)
             preview = {
                 "filename": output_name,
                 "subfolder": subfolder,
                 "type": "output",
-                "format": "video/mp4",
+                "format": "video/mp4" if container_format == "mp4" else "video/x-matroska",
                 "frame_rate": frame_rate,
                 "fullpath": output_path,
             }
@@ -502,14 +549,17 @@ class SnJakeVideoComposer:
             if not metadata:
                 metadata = None
 
-        video.save_to(
-            output_path,
-            format=Types.VideoContainer.MP4,
-            codec=Types.VideoCodec.H264,
-            metadata=metadata,
-            bit_depth=output_bit_depth,
-            crf=crf,
-        )
+        if container_format == "mp4":
+            video.save_to(
+                output_path,
+                format=Types.VideoContainer.MP4,
+                codec=Types.VideoCodec.H264,
+                metadata=metadata,
+                bit_depth=output_bit_depth,
+                crf=crf,
+            )
+        else:
+            _save_mkv(images, audio, frame_rate, output_path, metadata, output_bit_depth, crf)
         if preview is None:
             return {"result": (video, output_path)}
         return {"ui": {"gifs": [preview]}, "result": (video, output_path)}
