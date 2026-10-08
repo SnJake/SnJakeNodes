@@ -1115,14 +1115,14 @@ class SaveImageToPath:
             # или что узел предназначен для работы с одним изображением за раз.
             # Если нужно сохранять все изображения из батча, логику нужно будет изменить (например, цикл и модификация имени файла).
             # Для данного примера, предполагаем сохранение одного изображения.
-            img_tensor = image[0] 
-            np_img = img_tensor.cpu().numpy()
+            img_tensor = image[0]
+            np_img = img_tensor.detach().to(device="cpu", dtype=torch.float32).numpy()
             
             # Транспонирование, если формат [C,H,W]
-            if len(np_img.shape) == 3 and np_img.shape[0] in [1, 3, 4]: # (C, H, W)
+            if np_img.ndim == 3 and np_img.shape[-1] not in (1, 3, 4) and np_img.shape[0] in (1, 3, 4):
                 np_img = np.transpose(np_img, (1, 2, 0)) # (H, W, C)
             
-            np_img = (np_img * 255.0).clip(0, 255).astype(np.uint8)
+            np_img = np.rint(np_img * 255.0).clip(0, 255).astype(np.uint8)
             
             # Определяем режим в зависимости от числа каналов
             if np_img.ndim == 2: # Grayscale
